@@ -1,0 +1,40 @@
+# Dataset (imágenes nunca se versionan en Git)
+data/raw/
+data/processed/
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.bmp
+*.webp
+*.tiff
+
+# Archivos de modelo
+*.pth
+*.pt
+*.onnx
+
+# Archivos comprimidos
+*.zip
+*.tar.gz
+*.rar
+
+# Variables de entorno sensibles
+.env
+.env.*
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# OS
+.DS_Store
+Thumbs.db
