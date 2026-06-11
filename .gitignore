@@ -10,8 +10,6 @@ data/processed/
 *.tiff
 
 # Archivos de modelo
-*.pth
-*.pt
 *.onnx
 
 # Archivos comprimidos
