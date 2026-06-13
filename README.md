@@ -1,8 +1,8 @@
-# TP Integrador — Detección de Jugadores para Offside en Fútbol
+# Detección de Jugadores para Offside en Fútbol
 
 Trabajo Práctico Integrador de la materia *Redes Neuronales Profundas (Ingeniería en Sistemas de Información)*.
 
-El objetivo es entrenar un modelo de detección de objetos (YOLOv8s) sobre imágenes de broadcast de fútbol para localizar jugadores, árbitros y la pelota mediante bounding boxes — información necesaria para determinar la línea de offside.
+El objetivo es entrenar un modelo de detección de objetos (YOLOv8s) sobre imágenes de broadcast de fútbol para localizar jugadores, árbitros y la pelota mediante bounding boxes, información necesaria para determinar la línea de offside.
 
 ## Integrantes
 
