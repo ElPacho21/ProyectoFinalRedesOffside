@@ -14,7 +14,10 @@ El objetivo es entrenar un modelo de detección de objetos (YOLOv8s) sobre imág
 
 ## Aplicación desplegada
 
-[TBD — se completará en la Semana 4]
+[TBD — completar con la URL de Streamlit Cloud luego del deploy]
+
+> Para desplegar en Streamlit Cloud: conectar el repo en https://share.streamlit.io,
+> seleccionar `prod/app.py` como archivo principal.
 
 ## Stack tecnológico
 
@@ -36,19 +39,33 @@ El objetivo es entrenar un modelo de detección de objetos (YOLOv8s) sobre imág
 
 ## Instrucciones para ejecutar localmente
 
+### App web (Semana 4)
+
 ```bash
 git clone <url-del-repo>
 cd ProyectoFinalRedesOffside
+pip install -r prod/requirements.txt
+streamlit run prod/app.py
+```
+
+### Notebooks de entrenamiento (Semanas 1-3)
+
+```bash
 pip install -r requirements.txt
-export ROBOFLOW_API_KEY="tu_api_key"
+export ROBOFLOW_API_KEY="tu_api_key"   # Windows: set ROBOFLOW_API_KEY=tu_api_key
 python data/download_dataset.py
 jupyter notebook dev/01_dataset_preparation.ipynb
 ```
 
-> En Windows, reemplazar `export` por `set`:
-> ```cmd
-> set ROBOFLOW_API_KEY=tu_api_key
-> ```
+### Herramienta de anotación manual (VP + ground truth de offside)
+
+```bash
+# Cada integrante corre con su ID (0-4):
+python dev/annotate_vp.py --integrante 0
+
+# Con comparación contra el algoritmo:
+python dev/annotate_vp.py --integrante 0 --comparar-algoritmo
+```
 
 ## Estructura del repositorio
 
@@ -56,17 +73,23 @@ jupyter notebook dev/01_dataset_preparation.ipynb
 ProyectoFinalRedesOffside/
 ├── .gitignore
 ├── README.md
+├── requirements.txt            ← Dependencias para notebooks de entrenamiento
 ├── data/
-│   ├── README.md               ← Descripción del dataset e instrucciones de descarga
-│   ├── download_dataset.py     ← Script de descarga automática vía Roboflow
-│   ├── train.csv               ← Anotaciones split train (una fila por bounding box)
-│   ├── val.csv                 ← Anotaciones split val
-│   └── test.csv                ← Anotaciones split test
+│   ├── README.md
+│   ├── download_dataset.py
+│   ├── vp_annotations.csv      ← Anotaciones manuales de VP + ground truth offside
+│   ├── train.csv
+│   ├── val.csv
+│   └── test.csv
 ├── dev/
 │   ├── 01_dataset_preparation.ipynb
-│   ├── augmentation_examples.png
-│   ├── class_distribution.png
-│   └── train_batch_sample.png
+│   ├── 02_model_training.ipynb
+│   ├── HoughLines.py           ← Detección de punto de fuga (Hough + manual)
+│   ├── annotate_vp.py          ← Herramienta de anotación manual VP + offside GT
+│   └── YOLOv8m Weighted/
+│       └── exp3_yolov8m_weighted.pt  ← Modelo entrenado (~52 MB)
 └── prod/
-    └── .gitkeep                ← Reservado para la app web (Semana 4)
+    ├── app.py                  ← Interfaz Streamlit
+    ├── utils.py                ← Lógica: modelo, inferencia, geometría de offside
+    └── requirements.txt        ← Dependencias para la app web (versiones fijadas)
 ```
