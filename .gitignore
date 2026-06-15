@@ -1,6 +1,8 @@
 # Dataset (imágenes nunca se versionan en Git)
 data/raw/
+data/raw_new/
 data/processed/
+data/combined/
 *.jpg
 *.jpeg
 *.png
