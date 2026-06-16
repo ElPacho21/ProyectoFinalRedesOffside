@@ -48,6 +48,10 @@ MODEL_PATHS = {
     3: {
         "name": "Exp3: YOLOv8m Weighted",
         "path": _ROOT / "dev" / "YOLOv8m Weighted" / "exp3_yolov8m_weighted.pt"
+    },
+    4: {
+        "name": "Exp4: YOLO26m Combined",
+        "path": _ROOT / "runs" / "exp" / "exp4_yolo26m_combined" / "weights" / "best.pt" if (_ROOT / "runs" / "exp" / "exp4_yolo26m_combined" / "weights" / "best.pt").exists() else _ROOT / "dev" / "YOLO26m Combined" / "exp4_yolo26m_combined.pt"
     }
 }
 
@@ -68,9 +72,9 @@ def main():
     parser.add_argument(
         "--model",
         type=int,
-        choices=[1, 2, 3],
+        choices=[1, 2, 3, 4],
         default=1,
-        help="Número de experimento/modelo a usar: 1 (YOLOv8s Full), 2 (YOLOv8s Freeze), 3 (YOLOv8m Weighted). Por defecto: 1."
+        help="Número de experimento/modelo a usar: 1 (YOLOv8s Full), 2 (YOLOv8s Freeze), 3 (YOLOv8m Weighted), 4 (YOLO26m Combined). Por defecto: 1."
     )
     parser.add_argument(
         "--image",
@@ -83,6 +87,17 @@ def main():
         type=float,
         default=0.25,
         help="Umbral de confianza para las predicciones de YOLO. Por defecto: 0.25."
+    )
+    parser.add_argument(
+        "--iou",
+        type=float,
+        default=0.7,
+        help="Umbral de IoU para la supresión de no-máximos (NMS). Por defecto: 0.7."
+    )
+    parser.add_argument(
+        "--agnostic-nms",
+        action="store_true",
+        help="Activa NMS agnóstico de clase para eliminar cajas duplicadas sobre el mismo objeto."
     )
     parser.add_argument(
         "--save-path",
@@ -153,8 +168,14 @@ def main():
     h, w, _ = img_bgr.shape
     print(f"Resolución de la imagen: {w}x{h}")
 
-    print(f"Corriendo inferencia con conf={args.conf}...")
-    results = model.predict(source=img_bgr, conf=args.conf, verbose=False)[0]
+    print(f"Corriendo inferencia con conf={args.conf}, iou={args.iou}, agnostic_nms={args.agnostic_nms}...")
+    results = model.predict(
+        source=img_bgr,
+        conf=args.conf,
+        iou=args.iou,
+        agnostic_nms=args.agnostic_nms,
+        verbose=False
+    )[0]
 
     # Contar detecciones
     detections_summary = {}
