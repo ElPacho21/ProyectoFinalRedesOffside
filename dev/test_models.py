@@ -51,7 +51,11 @@ MODEL_PATHS = {
     },
     4: {
         "name": "Exp4: YOLO26m Combined",
-        "path": _ROOT / "runs" / "exp" / "exp4_yolo26m_combined" / "weights" / "best.pt" if (_ROOT / "runs" / "exp" / "exp4_yolo26m_combined" / "weights" / "best.pt").exists() else _ROOT / "dev" / "YOLOv26m Full" / "exp3_yolov26m_full.pt"
+        "path": _ROOT / "runs" / "exp" / "exp4_yolo26m_combined" / "weights" / "best.pt" if (_ROOT / "runs" / "exp" / "exp4_yolo26m_combined" / "weights" / "best.pt").exists() else _ROOT / "dev" / "YOLO26m Combined" / "exp4_yolo26m_combined.pt"
+    },
+    5: {
+        "name": "Exp5: YOLO26m Manual Weighted",
+        "path": _ROOT / "runs" / "exp" / "exp5_yolo26m_manual_weighted" / "weights" / "best.pt" if (_ROOT / "runs" / "exp" / "exp5_yolo26m_manual_weighted" / "weights" / "best.pt").exists() else _ROOT / "dev" / "YOLO26m Manual Weighted" / "exp5_yolo26m_manual_weighted.pt"
     }
 }
 
@@ -72,9 +76,9 @@ def main():
     parser.add_argument(
         "--model",
         type=int,
-        choices=[1, 2, 3, 4],
+        choices=[1, 2, 3, 4, 5],
         default=1,
-        help="Número de experimento/modelo a usar: 1 (YOLOv8s Full), 2 (YOLOv8s Freeze), 3 (YOLOv8m Weighted), 4 (YOLO26m Combined). Por defecto: 1."
+        help="Número de experimento/modelo a usar: 1 (YOLOv8s Full), 2 (YOLOv8s Freeze), 3 (YOLOv8m Weighted), 4 (YOLO26m Combined), 5 (YOLO26m Manual Weighted). Por defecto: 1."
     )
     parser.add_argument(
         "--image",
