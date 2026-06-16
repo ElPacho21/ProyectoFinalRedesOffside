@@ -34,6 +34,12 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from ultralytics import YOLO
+from dev.custom_models import WeightedDetectionModel, MANUAL_WEIGHTS
+
+# Registrar la clase personalizada en el espacio de nombres principal (__main__)
+# para que PyTorch pueda deserializar el modelo entrenado
+sys.modules['__main__'].WeightedDetectionModel = WeightedDetectionModel
+WeightedDetectionModel.class_weights = MANUAL_WEIGHTS
 
 # Rutas de los modelos entrenados en el proyecto
 MODEL_PATHS = {
@@ -50,12 +56,12 @@ MODEL_PATHS = {
         "path": _ROOT / "dev" / "YOLOv8m Weighted" / "exp3_yolov8m_weighted.pt"
     },
     4: {
-        "name": "Exp4: YOLO26m Combined",
-        "path": _ROOT / "runs" / "exp" / "exp4_yolo26m_combined" / "weights" / "best.pt" if (_ROOT / "runs" / "exp" / "exp4_yolo26m_combined" / "weights" / "best.pt").exists() else _ROOT / "dev" / "YOLO26m Combined" / "exp4_yolo26m_combined.pt"
+        "name": "Exp4: YOLOv26m Full",
+        "path":  _ROOT / "dev" / "YOLOv26m Full" / "exp4_yolov26m_full.pt"
     },
     5: {
-        "name": "Exp5: YOLO26m Manual Weighted",
-        "path": _ROOT / "runs" / "exp" / "exp5_yolo26m_manual_weighted" / "weights" / "best.pt" if (_ROOT / "runs" / "exp" / "exp5_yolo26m_manual_weighted" / "weights" / "best.pt").exists() else _ROOT / "dev" / "YOLO26m Manual Weighted" / "exp5_yolo26m_manual_weighted.pt"
+        "name": "Exp5: YOLOv26m Manual Weighted",
+        "path":  _ROOT / "dev" / "YOLOv26m Manual Weighted" / "exp5_yolo26m_manual_weighted.pt"
     }
 }
 
