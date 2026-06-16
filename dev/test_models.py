@@ -51,7 +51,7 @@ MODEL_PATHS = {
     },
     4: {
         "name": "Exp4: YOLO26m Combined",
-        "path": _ROOT / "runs" / "exp" / "exp4_yolo26m_combined" / "weights" / "best.pt" if (_ROOT / "runs" / "exp" / "exp4_yolo26m_combined" / "weights" / "best.pt").exists() else _ROOT / "dev" / "YOLO26m Combined" / "exp4_yolo26m_combined.pt"
+        "path": _ROOT / "runs" / "exp" / "exp4_yolo26m_combined" / "weights" / "best.pt" if (_ROOT / "runs" / "exp" / "exp4_yolo26m_combined" / "weights" / "best.pt").exists() else _ROOT / "dev" / "YOLOv26m Full" / "exp3_yolov26m_full.pt"
     }
 }
 
