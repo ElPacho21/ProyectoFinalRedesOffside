@@ -62,11 +62,65 @@ def cargar_modelo(ruta=None):
     return YOLO(str(ruta or MODEL_PATH))
 
 
-def detectar_objetos(modelo, imagen_pil, conf=0.25, iou=0.7, agnostic_nms=True):
+def reasignar_equipos_por_color(detecciones, imagen_pil):
+    """
+    Reasigna TEAM 1/2 usando K-means (k=2) sobre color de camiseta en espacio LAB.
+    Resuelve la dependencia del modelo a colores específicos del dataset de entrenamiento.
+    Solo afecta class_id 5 y 6. GoalKeeper, Referee, Ball, etc. no se tocan.
+    """
+    img_np = np.array(imagen_pil.convert("RGB"))
+    h_img, w_img = img_np.shape[:2]
+
+    jugadores_idx = [i for i, d in enumerate(detecciones) if d["class_id"] in (5, 6)]
+    if len(jugadores_idx) < 2:
+        return detecciones
+
+    colores = []
+    for i in jugadores_idx:
+        d = detecciones[i]
+        x1 = max(0, int(d["x1"]))
+        y1 = max(0, int(d["y1"]))
+        x2 = min(w_img, int(d["x2"]))
+        y2 = min(h_img, int(d["y2"]))
+        bbox_h = max(1, y2 - y1)
+        # Zona del torso: 20%-60% alto, 25%-75% ancho (reduce contaminación de jugadores adyacentes)
+        ty1 = y1 + int(bbox_h * 0.20)
+        ty2 = y1 + int(bbox_h * 0.60)
+        bw = max(1, x2 - x1)
+        tx1 = x1 + int(bw * 0.25)
+        tx2 = x1 + int(bw * 0.75)
+        crop = img_np[ty1:ty2, tx1:tx2] if ty2 > ty1 and tx2 > tx1 else img_np[y1:y2, x1:x2]
+        if crop.size == 0:
+            colores.append(np.zeros(3, dtype=np.float32))
+            continue
+        crop_lab = cv2.cvtColor(crop, cv2.COLOR_RGB2LAB)
+        colores.append(crop_lab.reshape(-1, 3).mean(axis=0).astype(np.float32))
+
+    colores_arr = np.array(colores, dtype=np.float32)
+    criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 0.1)
+    _, labels, _ = cv2.kmeans(colores_arr, 2, None, criteria, 10, cv2.KMEANS_RANDOM_CENTERS)
+    labels = labels.flatten()
+
+    resultado = list(detecciones)
+    for orden, idx in enumerate(jugadores_idx):
+        d = dict(resultado[idx])
+        # Cluster 0 → TEAM 1 (5), Cluster 1 → TEAM 2 (6)
+        new_id = 5 if int(labels[orden]) == 0 else 6
+        d["class_id"] = new_id
+        d["class_name"] = CLASES[new_id]
+        resultado[idx] = d
+
+    return resultado
+
+
+def detectar_objetos(modelo, imagen_pil, conf=0.25, iou=0.7, agnostic_nms=True, clustering=True):
     """
     Ejecuta inferencia YOLOv8 sobre una PIL.Image con parámetros NMS personalizados.
     Ultralytics aplica internamente el mismo preprocesamiento que en entrenamiento
     (resize a 640, normalización), así que no hay que reinventarlo.
+
+    clustering=True reasigna TEAM 1/2 por color de camiseta (K-means) en vez de
+    depender de la clasificación del modelo, que solo conoce los colores del dataset.
 
     Retorna lista de dicts: {class_id, class_name, conf, x1, y1, x2, y2}
     """
@@ -84,14 +138,18 @@ def detectar_objetos(modelo, imagen_pil, conf=0.25, iou=0.7, agnostic_nms=True):
         boxes = resultados[0].boxes
         for i in range(len(boxes)):
             cls_id = int(boxes.cls[i].item())
-            conf   = float(boxes.conf[i].item())
+            conf_i = float(boxes.conf[i].item())
             x1, y1, x2, y2 = boxes.xyxy[i].tolist()
             detecciones.append({
                 "class_id":   cls_id,
                 "class_name": CLASES.get(cls_id, str(cls_id)),
-                "conf":       conf,
+                "conf":       conf_i,
                 "x1": x1, "y1": y1, "x2": x2, "y2": y2,
             })
+
+    if clustering:
+        detecciones = reasignar_equipos_por_color(detecciones, imagen_pil)
+
     return detecciones
 
 
