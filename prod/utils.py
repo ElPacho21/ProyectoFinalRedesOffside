@@ -13,12 +13,26 @@ _DEV_DIR = Path(__file__).resolve().parent.parent / "dev"
 sys.path.insert(0, str(_DEV_DIR))
 from HoughLines import detectar_punto_de_fuga, punto_de_fuga_desde_puntos  # noqa: E402
 
+# Registrar WeightedDetectionModel en __main__ para evitar errores de deserialización al cargar modelos entrenados con pesos
+try:
+    from dev.custom_models import WeightedDetectionModel
+    sys.modules['__main__'].WeightedDetectionModel = WeightedDetectionModel
+except Exception:
+    try:
+        from custom_models import WeightedDetectionModel
+        sys.modules['__main__'].WeightedDetectionModel = WeightedDetectionModel
+    except Exception:
+        class WeightedDetectionModel:
+            pass
+        sys.modules['__main__'].WeightedDetectionModel = WeightedDetectionModel
+
+
 # Rutas: buscamos primero dev/modelo.pth (nombre canónico del TP), luego el archivo real
 _ROOT = Path(__file__).resolve().parent.parent
 MODEL_PATH = (
-    _ROOT / "dev" / "modelo.pth"
-    if (_ROOT / "dev" / "modelo.pth").exists()
-    else _ROOT / "dev" / "YOLOv8m Weighted" / "exp3_yolov8m_weighted.pt"
+    _ROOT / "dev" / "modelo.pt"
+    if (_ROOT / "dev" / "modelo.pt").exists()
+    else _ROOT / "dev" / "YOLOv26m Manual Weighted" / "exp5_yolo26m_manual_weighted.pt"
 )
 
 # Clases del dataset según data/raw/data.yaml
@@ -48,16 +62,22 @@ def cargar_modelo(ruta=None):
     return YOLO(str(ruta or MODEL_PATH))
 
 
-def detectar_objetos(modelo, imagen_pil):
+def detectar_objetos(modelo, imagen_pil, conf=0.25, iou=0.7, agnostic_nms=True):
     """
-    Ejecuta inferencia YOLOv8 sobre una PIL.Image.
+    Ejecuta inferencia YOLOv8 sobre una PIL.Image con parámetros NMS personalizados.
     Ultralytics aplica internamente el mismo preprocesamiento que en entrenamiento
     (resize a 640, normalización), así que no hay que reinventarlo.
 
     Retorna lista de dicts: {class_id, class_name, conf, x1, y1, x2, y2}
     """
     img_np = np.array(imagen_pil.convert("RGB"))
-    resultados = modelo.predict(source=img_np, conf=0.25, verbose=False)
+    resultados = modelo.predict(
+        source=img_np,
+        conf=conf,
+        iou=iou,
+        agnostic_nms=agnostic_nms,
+        verbose=False
+    )
 
     detecciones = []
     if resultados and resultados[0].boxes is not None:
@@ -98,7 +118,7 @@ def _proyectar_en_base(foot, vp, h):
     return fx + t * (vp_x - fx)
 
 
-def calcular_offside(vp, detecciones, equipo_atacante_id, imagen_shape):
+def calcular_offside(vp, detecciones, equipo_atacante_id, imagen_shape, gol_a_derecha=None, ref_defender_idx=None):
     """
     Calcula el veredicto de offside geométrico usando el punto de fuga.
 
@@ -106,7 +126,7 @@ def calcular_offside(vp, detecciones, equipo_atacante_id, imagen_shape):
       1. Separa jugadores en atacantes y defensores (otro equipo + arquero).
       2. Proyecta el pie de cada defensor hacia el VP para ordenarlos
          a lo largo del eje del campo, corrigiendo perspectiva.
-      3. Identifica la dirección del gol a partir de la posición del arquero.
+      3. Identifica la dirección del gol a partir de la posición del arquero o la selección manual.
       4. El penúltimo defensor (2do desde el gol) define la línea de offside.
       5. Cada atacante cuya proyección supere la del penúltimo defensor es OFFSIDE.
 
@@ -145,29 +165,51 @@ def calcular_offside(vp, detecciones, equipo_atacante_id, imagen_shape):
     def proj(det):
         return _proyectar_en_base(pie_jugador(det), vp, h)
 
-    # Determinar en qué lado está el gol: el arquero está parado cerca del arco.
-    # Comparamos su proyección contra el promedio de todos los jugadores del campo.
-    todos = [d for d in detecciones if d["class_id"] in (2, 5, 6)]
-    promedio_proj = np.mean([proj(d) for d in todos]) if todos else w / 2.0
+    # Determinar en qué lado está el gol
+    if gol_a_derecha is None:
+        # Comparamos la proyección contra el promedio de todos los jugadores del campo.
+        todos = [d for d in detecciones if d["class_id"] in (2, 5, 6)]
+        promedio_proj = np.mean([proj(d) for d in todos]) if todos else w / 2.0
 
-    if arqueros:
-        gol_a_derecha = bool(proj(arqueros[0]) > promedio_proj)
-    else:
-        # Sin arquero: estimamos por la posición promedio de los defensores
-        gol_a_derecha = bool(np.mean([proj(d) for d in defensores]) > promedio_proj)
+        if arqueros:
+            gol_a_derecha = bool(proj(arqueros[0]) > promedio_proj)
+        else:
+            # Sin arquero: estimamos por la posición promedio de los defensores
+            gol_a_derecha = bool(np.mean([proj(d) for d in defensores]) > promedio_proj)
 
     # Ordenar defensores desde el gol hacia el centro del campo
     defensores_ord = sorted(defensores, key=proj, reverse=gol_a_derecha)
 
-    # El penúltimo defensor es el 2do desde el gol (el arquero ocupa la 1ra posición)
-    if len(defensores_ord) < 2:
-        penultimo = defensores_ord[0]
-        advertencias.append("Solo un defensor detectado; se usa como referencia de offside.")
+    if ref_defender_idx is not None:
+        if 0 <= ref_defender_idx < len(defensores_ord):
+            penultimo = defensores_ord[ref_defender_idx]
+        else:
+            penultimo = defensores_ord[-1] if defensores_ord else None
+            advertencias.append(f"No hay suficientes defensores para usar el índice {ref_defender_idx + 1}.")
     else:
-        penultimo = defensores_ord[1]
+        # El penúltimo defensor es el 2do desde el gol.
+        # Si detectamos arquero, él ocupa el 1er lugar (índice 0), por lo que el penúltimo es el índice 1.
+        # Si NO detectamos arquero, asumimos que está en el arco (detrás de los defensores de campo),
+        # por lo que el último defensor de campo (índice 0) actúa como el penúltimo general.
+        if arqueros:
+            if len(defensores_ord) < 2:
+                penultimo = defensores_ord[0]
+                advertencias.append("Solo un defensor detectado; se usa como referencia de offside.")
+            else:
+                penultimo = defensores_ord[1]
+        else:
+            if defensores_ord:
+                penultimo = defensores_ord[0]
+            else:
+                penultimo = None
+                advertencias.append("No se detectaron defensores de campo.")
 
-    penultimo_proj = proj(penultimo)
-    penultimo_foot = pie_jugador(penultimo)
+    if penultimo is not None:
+        penultimo_proj = proj(penultimo)
+        penultimo_foot = pie_jugador(penultimo)
+    else:
+        penultimo_proj = 0
+        penultimo_foot = None
 
     # Evaluar cada atacante
     atacantes_resultado = []

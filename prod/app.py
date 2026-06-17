@@ -50,7 +50,7 @@ with st.spinner("Cargando modelo YOLOv8..."):
     modelo = get_modelo()
 
 # ---------------------------------------------------------------------------
-# Paso 1: Subida de imagen
+# Paso 1: Subida de imagen y configuración de parámetros
 # ---------------------------------------------------------------------------
 st.header("1. Subí una imagen del partido")
 imagen_subida = st.file_uploader(
@@ -62,22 +62,65 @@ if imagen_subida is None:
     st.info("Subí una imagen para comenzar el análisis.")
     st.stop()
 
+# Parámetros de detección de YOLO
+col_conf, col_iou, col_agnostic = st.columns(3)
+with col_conf:
+    conf = st.slider(
+        "Umbral de confianza (Confidence)",
+        min_value=0.05,
+        max_value=0.90,
+        value=0.25,
+        step=0.05,
+        help="Confianza mínima requerida para registrar una detección."
+    )
+with col_iou:
+    iou = st.slider(
+        "Umbral de IoU (NMS)",
+        min_value=0.10,
+        max_value=0.95,
+        value=0.70,
+        step=0.05,
+        help="Superposición máxima permitida entre cajas de detección."
+    )
+with col_agnostic:
+    st.write("") # Espaciadores verticales para centrado
+    st.write("") 
+    agnostic_nms = st.checkbox(
+        "NMS Agnóstico de Clase",
+        value=True,
+        help="Evita que se dibujen cajas duplicadas de distintos equipos sobre un mismo jugador."
+    )
+
 imagen_pil = Image.open(imagen_subida).convert("RGB")
 ancho_orig, alto_orig = imagen_pil.size
 
 # ---------------------------------------------------------------------------
 # Paso 2: Detección con YOLOv8
-# Cacheamos en session_state para evitar redetectar si la imagen no cambió.
+# Cacheamos en session_state para evitar redetectar si los parámetros o la imagen no cambiaron.
 # ---------------------------------------------------------------------------
-if st.session_state.get("last_filename") != imagen_subida.name:
+if (
+    st.session_state.get("last_filename") != imagen_subida.name
+    or st.session_state.get("last_conf") != conf
+    or st.session_state.get("last_iou") != iou
+    or st.session_state.get("last_agnostic") != agnostic_nms
+):
     st.session_state.last_filename  = imagen_subida.name
+    st.session_state.last_conf      = conf
+    st.session_state.last_iou       = iou
+    st.session_state.last_agnostic  = agnostic_nms
     st.session_state.detecciones    = None
     st.session_state.vp_manual      = None
     st.session_state.resultado      = None
 
 if st.session_state.detecciones is None:
     with st.spinner("Detectando jugadores y objetos..."):
-        st.session_state.detecciones = detectar_objetos(modelo, imagen_pil)
+        st.session_state.detecciones = detectar_objetos(
+            modelo,
+            imagen_pil,
+            conf=conf,
+            iou=iou,
+            agnostic_nms=agnostic_nms
+        )
 
 detecciones = st.session_state.detecciones
 
@@ -87,7 +130,7 @@ col_img, col_info = st.columns([3, 1])
 
 with col_img:
     img_det = dibujar_resultado(imagen_pil, detecciones, vp=None, resultado_offside=None)
-    st.image(img_det, caption="Bounding boxes detectados", use_column_width=True)
+    st.image(img_det, caption="Bounding boxes detectados", width="stretch")
 
 with col_info:
     st.subheader("Objetos detectados")
@@ -255,26 +298,72 @@ default_idx = opciones.index(sugerencia) if sugerencia in opciones else 0
 equipo_atacante    = st.radio("¿Qué equipo está atacando?", opciones, index=default_idx, horizontal=True)
 equipo_atacante_id = 5 if equipo_atacante == "TEAM 1" else 6
 
+# Controles avanzados para ajustar dirección y defensor de referencia
+with st.expander("Ajustes avanzados de Offside (Dirección y Referencia)"):
+    col_dir, col_ref = st.columns(2)
+    with col_dir:
+        dir_ataque = st.radio(
+            "Dirección del ataque:",
+            ["Detectar automáticamente 🔄", "Ataca hacia la derecha ➡️", "Ataca hacia la izquierda ⬅️"],
+            index=0,
+            help="Fuerza la dirección en la que el equipo seleccionado está atacando."
+        )
+    with col_ref:
+        ref_defensor = st.selectbox(
+            "Jugador de referencia para la línea:",
+            [
+                "Detectar automáticamente 🔄",
+                "1er jugador más cercano al arco (Último)",
+                "2do jugador más cercano al arco (Penúltimo)",
+                "3er jugador más cercano al arco"
+            ],
+            index=0,
+            help="Elige explícitamente cuál defensor (ordenados desde su propia línea de meta) define la línea de offside."
+        )
+
 # ---------------------------------------------------------------------------
 # Paso 5: Cálculo de offside
 # ---------------------------------------------------------------------------
 st.header("5. Resultado de offside")
 
 if st.button("Calcular offside", type="primary", use_container_width=True):
+    # Mapeo de dirección del ataque
+    gol_a_derecha_val = None
+    if dir_ataque == "Ataca hacia la derecha ➡️":
+        gol_a_derecha_val = True
+    elif dir_ataque == "Ataca hacia la izquierda ⬅️":
+        gol_a_derecha_val = False
+
+    # Mapeo del defensor de referencia
+    ref_defender_idx_val = None
+    if ref_defensor == "1er jugador más cercano al arco (Último)":
+        ref_defender_idx_val = 0
+    elif ref_defensor == "2do jugador más cercano al arco (Penúltimo)":
+        ref_defender_idx_val = 1
+    elif ref_defensor == "3er jugador más cercano al arco":
+        ref_defender_idx_val = 2
+
     resultado = calcular_offside(
         vp,
         detecciones,
         equipo_atacante_id,
         np.array(imagen_pil).shape,
+        gol_a_derecha=gol_a_derecha_val,
+        ref_defender_idx=ref_defender_idx_val,
     )
-    st.session_state.resultado           = resultado
-    st.session_state.vp_para_resultado   = vp
+    st.session_state.resultado             = resultado
+    st.session_state.vp_para_resultado     = vp
     st.session_state.equipo_para_resultado = equipo_atacante_id
+    st.session_state.last_dir_ataque       = dir_ataque
+    st.session_state.last_ref_defensor     = ref_defensor
 
-# Mostrar resultado si está disponible (y corresponde a la imagen actual)
+# Mostrar resultado si está disponible (y corresponde a la imagen y configuración actuales)
 if (
     st.session_state.get("resultado") is not None
     and st.session_state.get("last_filename") == imagen_subida.name
+    and st.session_state.get("equipo_para_resultado") == equipo_atacante_id
+    and st.session_state.get("last_dir_ataque") == dir_ataque
+    and st.session_state.get("last_ref_defensor") == ref_defensor
 ):
     resultado  = st.session_state.resultado
     vp_final   = st.session_state.vp_para_resultado
@@ -288,7 +377,7 @@ if (
 
     col_res, col_det = st.columns([3, 1])
     with col_res:
-        st.image(img_final, caption="Imagen con línea de offside anotada", use_column_width=True)
+        st.image(img_final, caption="Imagen con línea de offside anotada", width="stretch")
 
     with col_det:
         # Veredicto global
