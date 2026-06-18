@@ -9,9 +9,13 @@ Flujo:
   4. Algoritmo geométrico de offside → imagen anotada + veredicto
 """
 import sys
+import os
+import base64
+import tempfile
 from pathlib import Path
 from collections import Counter
 
+import cv2
 import numpy as np
 import streamlit as st
 from PIL import Image
@@ -52,65 +56,121 @@ with st.spinner("Cargando modelo YOLOv8..."):
 # ---------------------------------------------------------------------------
 # Paso 1: Subida de imagen y configuración de parámetros
 # ---------------------------------------------------------------------------
-st.header("1. Subí una imagen del partido")
+st.header("1. Subí una imagen o video del partido")
 imagen_subida = st.file_uploader(
-    "Formatos aceptados: JPG, JPEG, PNG",
-    type=["jpg", "jpeg", "png"],
+    "Formatos aceptados: JPG, JPEG, PNG, MP4, AVI, MOV, MKV",
+    type=["jpg", "jpeg", "png", "mp4", "avi", "mov", "mkv", "m4v"],
 )
 
 if imagen_subida is None:
-    st.info("Subí una imagen para comenzar el análisis.")
+    st.info("Subí una imagen o video para comenzar el análisis.")
     st.stop()
 
-# Parámetros de detección de YOLO
-col_conf, col_iou, col_agnostic = st.columns(3)
-with col_conf:
-    conf = st.slider(
-        "Umbral de confianza (Confidence)",
-        min_value=0.05,
-        max_value=0.90,
-        value=0.25,
-        step=0.05,
-        help="Confianza mínima requerida para registrar una detección."
-    )
-with col_iou:
-    iou = st.slider(
-        "Umbral de IoU (NMS)",
-        min_value=0.10,
-        max_value=0.95,
-        value=0.70,
-        step=0.05,
-        help="Superposición máxima permitida entre cajas de detección."
-    )
-with col_agnostic:
-    st.write("") # Espaciadores verticales para centrado
-    st.write("") 
-    agnostic_nms = st.checkbox(
-        "NMS Agnóstico de Clase",
-        value=True,
-        help="Evita que se dibujen cajas duplicadas de distintos equipos sobre un mismo jugador."
-    )
+# --- Soporte de video ---
+_VIDEO_EXTS = {"mp4", "avi", "mov", "mkv", "m4v"}
+_file_ext = imagen_subida.name.rsplit(".", 1)[-1].lower()
+is_video = _file_ext in _VIDEO_EXTS
+frame_idx = 0
 
-imagen_pil = Image.open(imagen_subida).convert("RGB")
+if is_video:
+    # Guardar en archivo temporal (OpenCV necesita path, no BytesIO)
+    _vid_key = (imagen_subida.name, imagen_subida.size)
+    if st.session_state.get("_temp_vid_key") != _vid_key:
+        _tmp_path = os.path.join(
+            tempfile.gettempdir(),
+            f"offside_{abs(hash(imagen_subida.name)) % 10**9}.{_file_ext}"
+        )
+        imagen_subida.seek(0)
+        with open(_tmp_path, "wb") as _f:
+            _f.write(imagen_subida.read())
+        st.session_state._temp_vid_path = _tmp_path
+        st.session_state._temp_vid_key  = _vid_key
+        st.session_state.frame_idx      = 0   # reset al cargar nuevo video
+
+    _cap = cv2.VideoCapture(st.session_state._temp_vid_path)
+    _total_frames = int(_cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    _fps          = _cap.get(cv2.CAP_PROP_FPS) or 25.0
+    _cap.release()
+    _max_frame = max(0, _total_frames - 1)
+
+    # Botones ◀ ▶ + slider enlazado a session state
+    if "frame_idx" not in st.session_state:
+        st.session_state.frame_idx = 0
+
+    def _prev_frame():
+        st.session_state.frame_idx = max(0, st.session_state.frame_idx - 1)
+
+    def _next_frame():
+        st.session_state.frame_idx = min(_max_frame, st.session_state.frame_idx + 1)
+
+    frame_idx = st.session_state.frame_idx
+
+    # Extraer frame primero para mostrar preview
+    _cap = cv2.VideoCapture(st.session_state._temp_vid_path)
+    _cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+    _ret, _frame_bgr = _cap.read()
+    _cap.release()
+    if not _ret:
+        st.error("No se pudo leer el frame seleccionado.")
+        st.stop()
+    imagen_pil = Image.fromarray(cv2.cvtColor(_frame_bgr, cv2.COLOR_BGR2RGB))
+
+    # Preview primero
+    st.image(imagen_pil, use_container_width=True)
+
+    # Controles debajo de la preview
+    _col_prev, _col_slider, _col_next = st.columns([1, 20, 1])
+    with _col_prev:
+        st.button("◀", on_click=_prev_frame, use_container_width=True)
+    with _col_next:
+        st.button("▶", on_click=_next_frame, use_container_width=True)
+    with _col_slider:
+        frame_idx = st.slider(
+            "Frame",
+            0, _max_frame,
+            key="frame_idx",
+            label_visibility="collapsed",
+        )
+
+    _ts = frame_idx / _fps
+    st.caption(
+        f"**{_total_frames}** frames · **{_fps:.1f}** FPS · "
+        f"Frame **{frame_idx}** / {_max_frame} · "
+        f"{int(_ts // 60):02d}:{_ts % 60:05.2f}s"
+    )
+else:
+    imagen_pil = Image.open(imagen_subida).convert("RGB")
+
 ancho_orig, alto_orig = imagen_pil.size
+_cache_key = f"{imagen_subida.name}::f{frame_idx}" if is_video else imagen_subida.name
+
+# Parámetros de detección de YOLO
+conf = st.slider(
+    "Umbral de confianza (Confidence)",
+    min_value=0.05,
+    max_value=0.90,
+    value=0.25,
+    step=0.05,
+    help="Confianza mínima requerida para registrar una detección."
+)
 
 # ---------------------------------------------------------------------------
 # Paso 2: Detección con YOLOv8
 # Cacheamos en session_state para evitar redetectar si los parámetros o la imagen no cambiaron.
 # ---------------------------------------------------------------------------
 if (
-    st.session_state.get("last_filename") != imagen_subida.name
+    st.session_state.get("last_cache_key") != _cache_key
     or st.session_state.get("last_conf") != conf
-    or st.session_state.get("last_iou") != iou
-    or st.session_state.get("last_agnostic") != agnostic_nms
 ):
+    _filename_changed = st.session_state.get("last_filename") != imagen_subida.name
+    st.session_state.last_cache_key = _cache_key
     st.session_state.last_filename  = imagen_subida.name
     st.session_state.last_conf      = conf
-    st.session_state.last_iou       = iou
-    st.session_state.last_agnostic  = agnostic_nms
     st.session_state.detecciones    = None
-    st.session_state.vp_manual      = None
     st.session_state.resultado      = None
+    if _filename_changed:
+        st.session_state.vp_manual      = None
+        st.session_state.canvas_vp_reset = st.session_state.get("canvas_vp_reset", 0) + 1
 
 if st.session_state.detecciones is None:
     with st.spinner("Detectando jugadores y objetos..."):
@@ -118,8 +178,6 @@ if st.session_state.detecciones is None:
             modelo,
             imagen_pil,
             conf=conf,
-            iou=iou,
-            agnostic_nms=agnostic_nms
         )
 
 detecciones = st.session_state.detecciones
@@ -191,20 +249,45 @@ if usar_manual:
         DISPLAY_W = min(700, ancho_orig)
         DISPLAY_H = int(DISPLAY_W * alto_orig / ancho_orig)
 
-        # Inyectar CSS personalizado para cambiar el cursor del canvas a cruz (crosshair)
+        # El canvas vive en un iframe (componente custom de Streamlit), así que CSS del padre
+        # no llega. Inyectamos JS que accede al iframe por same-origin y aplica cursor X.
+        _x_svg = (
+            '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20">'
+            '<line x1="2" y1="2" x2="18" y2="18" stroke="white" stroke-width="4" stroke-linecap="round"/>'
+            '<line x1="18" y1="2" x2="2" y2="18" stroke="white" stroke-width="4" stroke-linecap="round"/>'
+            '<line x1="2" y1="2" x2="18" y2="18" stroke="black" stroke-width="2" stroke-linecap="round"/>'
+            '<line x1="18" y1="2" x2="2" y2="18" stroke="black" stroke-width="2" stroke-linecap="round"/>'
+            '</svg>'
+        )
+        _cursor_url = (
+            "url('data:image/svg+xml;base64,"
+            + base64.b64encode(_x_svg.encode()).decode()
+            + "') 10 10, crosshair"
+        )
         st.markdown(
-            """
-            <style>
-            .st-key-canvas_vp canvas {
-                cursor: crosshair !important;
-            }
-            canvas {
-                cursor: crosshair !important;
-            }
-            </style>
+            f"""
+            <script>
+            (function() {{
+                if (window._vpXCursorInterval) return;
+                var cursorUrl = "{_cursor_url}";
+                window._vpXCursorInterval = setInterval(function() {{
+                    document.querySelectorAll('iframe').forEach(function(iframe) {{
+                        try {{
+                            var doc = iframe.contentDocument || iframe.contentWindow.document;
+                            doc.querySelectorAll('canvas').forEach(function(c) {{
+                                c.style.setProperty('cursor', cursorUrl, 'important');
+                            }});
+                        }} catch(e) {{}}
+                    }});
+                }}, 200);
+            }})();
+            </script>
             """,
             unsafe_allow_html=True,
         )
+
+        if "canvas_vp_reset" not in st.session_state:
+            st.session_state.canvas_vp_reset = 0
 
         st.write("**Hacé clic sobre la imagen** para marcar los 4 puntos (aparecen como círculos rojos):")
         canvas_result = st_canvas(
@@ -215,37 +298,44 @@ if usar_manual:
             fill_color="#FF3333",
             width=DISPLAY_W,
             height=DISPLAY_H,
-            key="canvas_vp",
+            key=f"canvas_vp_{st.session_state.canvas_vp_reset}",
         )
 
         if canvas_result.json_data:
             objetos = canvas_result.json_data.get("objects", [])
             n_pts = len(objetos)
-            st.write(f"Puntos marcados: **{n_pts}/4**")
 
-            if n_pts >= 4:
-                # Los objetos son círculos pequeños; el centro es (left + radius, top + radius)
-                scale_x = ancho_orig / DISPLAY_W
-                scale_y = alto_orig / DISPLAY_H
-                pts = []
-                for obj in objetos[:4]:
-                    r  = obj.get("radius", 0)
-                    cx = (obj["left"] + r) * scale_x
-                    cy = (obj["top"]  + r) * scale_y
-                    pts.append((cx, cy))
+            if n_pts > 4:
+                st.error(f"Máximo 4 puntos permitidos. Marcaste {n_pts}.")
+                if st.button("Limpiar canvas"):
+                    st.session_state.canvas_vp_reset += 1
+                    st.rerun()
+            else:
+                st.write(f"Puntos marcados: **{n_pts}/4**")
 
-                vp_calculado = punto_de_fuga_desde_puntos(pts)
-                if vp_calculado:
-                    st.session_state.vp_manual = vp_calculado
-                    st.success(
-                        f"VP calculado desde puntos manuales: "
-                        f"({vp_calculado[0]:.0f}, {vp_calculado[1]:.0f})"
-                    )
-                else:
-                    st.error(
-                        "Las dos líneas que trazaste son paralelas. "
-                        "Elegí puntos sobre líneas que converjan (no líneas paralelas entre sí)."
-                    )
+                if n_pts == 4:
+                    # Los objetos son círculos pequeños; el centro es (left + radius, top + radius)
+                    scale_x = ancho_orig / DISPLAY_W
+                    scale_y = alto_orig / DISPLAY_H
+                    pts = []
+                    for obj in objetos:
+                        r  = obj.get("radius", 0)
+                        cx = (obj["left"] + r) * scale_x
+                        cy = (obj["top"]  + r) * scale_y
+                        pts.append((cx, cy))
+
+                    vp_calculado = punto_de_fuga_desde_puntos(pts)
+                    if vp_calculado:
+                        st.session_state.vp_manual = vp_calculado
+                        st.success(
+                            f"VP calculado desde puntos manuales: "
+                            f"({vp_calculado[0]:.0f}, {vp_calculado[1]:.0f})"
+                        )
+                    else:
+                        st.error(
+                            "Las dos líneas que trazaste son paralelas. "
+                            "Elegí puntos sobre líneas que converjan (no líneas paralelas entre sí)."
+                        )
 
     else:
         # Fallback: 4 pares de inputs numéricos
@@ -352,7 +442,11 @@ with st.expander("Ajustes avanzados de Offside (Dirección y Referencia)"):
 # ---------------------------------------------------------------------------
 st.header("5. Resultado de offside")
 
-if st.button("Calcular offside", type="primary", use_container_width=True):
+# Para videos con VP ya conocido, auto-calcular al cambiar de frame
+_btn_calc = st.button("Calcular offside", type="primary", use_container_width=True)
+_auto_calc = is_video and vp is not None and st.session_state.get("resultado") is None
+
+if _btn_calc or _auto_calc:
     # Mapeo de dirección del ataque
     gol_a_derecha_val = None
     if dir_ataque == "Ataca hacia la derecha ➡️":
@@ -392,10 +486,10 @@ if st.button("Calcular offside", type="primary", use_container_width=True):
     st.session_state.last_ref_defensor     = ref_defensor
     st.session_state.last_ref_pie          = ref_pie
 
-# Mostrar resultado si está disponible (y corresponde a la imagen y configuración actuales)
+# Mostrar resultado si está disponible (y corresponde al frame/imagen y configuración actuales)
 if (
     st.session_state.get("resultado") is not None
-    and st.session_state.get("last_filename") == imagen_subida.name
+    and st.session_state.get("last_cache_key") == _cache_key
     and st.session_state.get("equipo_para_resultado") == equipo_atacante_id
     and st.session_state.get("last_dir_ataque") == dir_ataque
     and st.session_state.get("last_ref_defensor") == ref_defensor
