@@ -191,11 +191,26 @@ if usar_manual:
         DISPLAY_W = min(700, ancho_orig)
         DISPLAY_H = int(DISPLAY_W * alto_orig / ancho_orig)
 
+        # Inyectar CSS personalizado para cambiar el cursor del canvas a cruz (crosshair)
+        st.markdown(
+            """
+            <style>
+            .st-key-canvas_vp canvas {
+                cursor: crosshair !important;
+            }
+            canvas {
+                cursor: crosshair !important;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+
         st.write("**Hacé clic sobre la imagen** para marcar los 4 puntos (aparecen como círculos rojos):")
         canvas_result = st_canvas(
             background_image=imagen_pil,
             drawing_mode="point",
-            point_display_radius=7,
+            point_display_radius=3,
             stroke_color="#FF3333",
             fill_color="#FF3333",
             width=DISPLAY_W,
@@ -300,7 +315,7 @@ equipo_atacante_id = 5 if equipo_atacante == "TEAM 1" else 6
 
 # Controles avanzados para ajustar dirección y defensor de referencia
 with st.expander("Ajustes avanzados de Offside (Dirección y Referencia)"):
-    col_dir, col_ref = st.columns(2)
+    col_dir, col_ref, col_pie = st.columns(3)
     with col_dir:
         dir_ataque = st.radio(
             "Dirección del ataque:",
@@ -319,6 +334,17 @@ with st.expander("Ajustes avanzados de Offside (Dirección y Referencia)"):
             ],
             index=0,
             help="Elige explícitamente cuál defensor (ordenados desde su propia línea de meta) define la línea de offside."
+        )
+    with col_pie:
+        ref_pie = st.selectbox(
+            "Punto de referencia del jugador:",
+            [
+                "Punto medio inferior (Centro) ⏺️",
+                "Punto izquierdo inferior (Izquierda) ◀️",
+                "Punto derecho inferior (Derecha) ▶️"
+            ],
+            index=0,
+            help="Determina qué parte del bounding box del jugador se usa para calcular su posición (útil según la pose del cuerpo)."
         )
 
 # ---------------------------------------------------------------------------
@@ -343,6 +369,13 @@ if st.button("Calcular offside", type="primary", use_container_width=True):
     elif ref_defensor == "3er jugador más cercano al arco":
         ref_defender_idx_val = 2
 
+    # Mapeo del punto de referencia (pie)
+    punto_referencia_val = "medio"
+    if ref_pie == "Punto izquierdo inferior (Izquierda) ◀️":
+        punto_referencia_val = "izquierdo"
+    elif ref_pie == "Punto derecho inferior (Derecha) ▶️":
+        punto_referencia_val = "derecho"
+
     resultado = calcular_offside(
         vp,
         detecciones,
@@ -350,12 +383,14 @@ if st.button("Calcular offside", type="primary", use_container_width=True):
         np.array(imagen_pil).shape,
         gol_a_derecha=gol_a_derecha_val,
         ref_defender_idx=ref_defender_idx_val,
+        punto_referencia=punto_referencia_val,
     )
     st.session_state.resultado             = resultado
     st.session_state.vp_para_resultado     = vp
     st.session_state.equipo_para_resultado = equipo_atacante_id
     st.session_state.last_dir_ataque       = dir_ataque
     st.session_state.last_ref_defensor     = ref_defensor
+    st.session_state.last_ref_pie          = ref_pie
 
 # Mostrar resultado si está disponible (y corresponde a la imagen y configuración actuales)
 if (
@@ -364,6 +399,7 @@ if (
     and st.session_state.get("equipo_para_resultado") == equipo_atacante_id
     and st.session_state.get("last_dir_ataque") == dir_ataque
     and st.session_state.get("last_ref_defensor") == ref_defensor
+    and st.session_state.get("last_ref_pie") == ref_pie
 ):
     resultado  = st.session_state.resultado
     vp_final   = st.session_state.vp_para_resultado

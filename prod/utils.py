@@ -153,11 +153,18 @@ def detectar_objetos(modelo, imagen_pil, conf=0.25, iou=0.7, agnostic_nms=True, 
     return detecciones
 
 
-def pie_jugador(det):
+def pie_jugador(det, modo="medio"):
     """
-    Punto de contacto con el césped: centro inferior del bounding box.
-    Es la posición que se compara en el algoritmo de offside.
+    Punto de contacto con el césped: según el modo seleccionado.
+    Modos:
+      - "medio": centro inferior del bounding box
+      - "izquierdo": esquina inferior izquierda
+      - "derecho": esquina inferior derecha
     """
+    if modo == "izquierdo":
+        return (det["x1"], det["y2"])
+    elif modo == "derecho":
+        return (det["x2"], det["y2"])
     return ((det["x1"] + det["x2"]) / 2, det["y2"])
 
 
@@ -176,7 +183,7 @@ def _proyectar_en_base(foot, vp, h):
     return fx + t * (vp_x - fx)
 
 
-def calcular_offside(vp, detecciones, equipo_atacante_id, imagen_shape, gol_a_derecha=None, ref_defender_idx=None):
+def calcular_offside(vp, detecciones, equipo_atacante_id, imagen_shape, gol_a_derecha=None, ref_defender_idx=None, punto_referencia="medio"):
     """
     Calcula el veredicto de offside geométrico usando el punto de fuga.
 
@@ -221,7 +228,7 @@ def calcular_offside(vp, detecciones, equipo_atacante_id, imagen_shape, gol_a_de
         advertencias.append("No se detectó arquero — la referencia de offside puede ser imprecisa.")
 
     def proj(det):
-        return _proyectar_en_base(pie_jugador(det), vp, h)
+        return _proyectar_en_base(pie_jugador(det, modo=punto_referencia), vp, h)
 
     # Determinar en qué lado está el gol
     if gol_a_derecha is None:
@@ -264,7 +271,7 @@ def calcular_offside(vp, detecciones, equipo_atacante_id, imagen_shape, gol_a_de
 
     if penultimo is not None:
         penultimo_proj = proj(penultimo)
-        penultimo_foot = pie_jugador(penultimo)
+        penultimo_foot = pie_jugador(penultimo, modo=punto_referencia)
     else:
         penultimo_proj = 0
         penultimo_foot = None
@@ -286,6 +293,7 @@ def calcular_offside(vp, detecciones, equipo_atacante_id, imagen_shape, gol_a_de
         "advertencias":        advertencias,
         "equipo_atacante_id":  equipo_atacante_id,
         "gol_a_derecha":       gol_a_derecha,
+        "punto_referencia":    punto_referencia,
     }
 
 
@@ -368,6 +376,20 @@ def dibujar_resultado(imagen_pil, detecciones, vp, resultado_offside):
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 140, 255), 1, cv2.LINE_AA)
         # Marcar el pie del penúltimo defensor
         cv2.circle(img, (int(fx), int(fy)), 8, (0, 140, 255), -1, cv2.LINE_AA)
+
+    # --- Líneas de atacantes en offside ---
+    if resultado_offside and vp:
+        punto_ref = resultado_offside.get("punto_referencia", "medio")
+        for det, en_offside in resultado_offside.get("atacantes_resultado", []):
+            if en_offside:
+                fx, fy = pie_jugador(det, modo=punto_ref)
+                pts_borde = _puntos_en_borde(fx, fy, vp[0], vp[1], w, h)
+                if len(pts_borde) >= 2:
+                    pt1 = (int(round(pts_borde[0][0])), int(round(pts_borde[0][1])))
+                    pt2 = (int(round(pts_borde[1][0])), int(round(pts_borde[1][1])))
+                    cv2.line(img, pt1, pt2, (0, 0, 220), 2, cv2.LINE_AA)
+                # Marcar el pie del atacante
+                cv2.circle(img, (int(fx), int(fy)), 6, (0, 0, 220), -1, cv2.LINE_AA)
 
     # --- Punto de fuga (solo si cae dentro de la imagen) ---
     if vp:
