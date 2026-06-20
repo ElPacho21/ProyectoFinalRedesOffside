@@ -288,9 +288,11 @@ def calcular_offside(vp, detecciones, equipo_atacante_id, imagen_shape, gol_a_de
         penultimo_foot = None
 
     pelota_proj = proj_centro(pelota) if pelota is not None else None
+    pelota_foot = ((pelota["x1"] + pelota["x2"]) / 2, (pelota["y1"] + pelota["y2"]) / 2) if pelota is not None else None
 
     # Evaluar cada atacante
     atacantes_resultado = []
+    salvados_por_pelota = 0
     for atk in atacantes:
         atk_proj = proj(atk)
         adelantado_al_defensor = (atk_proj > penultimo_proj) if gol_a_derecha else (atk_proj < penultimo_proj)
@@ -298,13 +300,20 @@ def calcular_offside(vp, detecciones, equipo_atacante_id, imagen_shape, gol_a_de
         if pelota_proj is not None:
             adelantado_a_pelota = (atk_proj > pelota_proj) if gol_a_derecha else (atk_proj < pelota_proj)
         en_offside = adelantado_al_defensor and adelantado_a_pelota
+        # Caso onside-por-pelota: superó al defensor pero está detrás de la pelota
+        if adelantado_al_defensor and not adelantado_a_pelota:
+            salvados_por_pelota += 1
         atacantes_resultado.append((atk, en_offside))
 
     hay_offside = any(os for _, os in atacantes_resultado)
 
+    # La línea relevante es la de la pelota cuando algún atacante quedó onside solo por estar detrás de ella
+    linea_pelota_foot = pelota_foot if salvados_por_pelota > 0 else None
+
     return {
         "penultimo_defensor":  penultimo,
         "linea_foot":          penultimo_foot,
+        "linea_pelota_foot":   linea_pelota_foot,
         "atacantes_resultado": atacantes_resultado,
         "hay_offside":         hay_offside,
         "advertencias":        advertencias,
@@ -397,6 +406,21 @@ def dibujar_resultado(imagen_pil, detecciones, vp, resultado_offside):
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 140, 255), 1, cv2.LINE_AA)
         # Marcar el pie del penúltimo defensor
         cv2.circle(img, (int(fx), int(fy)), 8, (0, 140, 255), -1, cv2.LINE_AA)
+
+    # --- Línea de la pelota (cuando un atacante quedó onside por estar detrás del balón) ---
+    if resultado_offside and resultado_offside.get("linea_pelota_foot") and vp:
+        bx, by = resultado_offside["linea_pelota_foot"]
+        pts_borde = _puntos_en_borde(bx, by, vp[0], vp[1], w, h)
+        if len(pts_borde) >= 2:
+            pt1 = (int(round(pts_borde[0][0])), int(round(pts_borde[0][1])))
+            pt2 = (int(round(pts_borde[1][0])), int(round(pts_borde[1][1])))
+            # Cian punteada para distinguirla de la línea de offside del defensor
+            cv2.line(img, pt1, pt2, (255, 200, 0), 2, cv2.LINE_AA)
+            label_x = min(pt1[0], pt2[0]) + 5
+            label_y = min(pt1[1], pt2[1]) - 6
+            cv2.putText(img, "Linea pelota", (label_x, max(label_y, 12)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 200, 0), 1, cv2.LINE_AA)
+        cv2.circle(img, (int(bx), int(by)), 6, (255, 200, 0), -1, cv2.LINE_AA)
 
     # --- Líneas de atacantes en offside ---
     if resultado_offside and vp:
