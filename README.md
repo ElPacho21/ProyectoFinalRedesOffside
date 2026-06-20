@@ -14,10 +14,7 @@ El objetivo es entrenar un modelo de detección de objetos (YOLOv8s) sobre imág
 
 ## Aplicación desplegada
 
-[TBD — completar con la URL de Streamlit Cloud luego del deploy]
-
-> Para desplegar en Streamlit Cloud: conectar el repo en https://share.streamlit.io,
-> seleccionar `prod/app.py` como archivo principal.
+**[https://proyectofinalredesoffside.streamlit.app/](https://proyectofinalredesoffside.streamlit.app/)**
 
 ## Stack tecnológico
 
@@ -86,8 +83,9 @@ ProyectoFinalRedesOffside/
 │   ├── 02_model_training.ipynb
 │   ├── HoughLines.py           ← Detección de punto de fuga (Hough + manual)
 │   ├── annotate_vp.py          ← Herramienta de anotación manual VP + offside GT
-│   └── YOLOv8m Weighted/
-│       └── exp3_yolov8m_weighted.pt  ← Modelo entrenado (~52 MB)
+│   ├── modelo.pt               ← Modelo final (cargado por la app en producción)
+│   └── YOLOv26m Manual Weighted/
+│       └── exp5_yolo26m_manual_weighted.pt  ← Pesos del experimento final
 └── prod/
     ├── app.py                  ← Interfaz Streamlit
     ├── utils.py                ← Lógica: modelo, inferencia, geometría de offside
