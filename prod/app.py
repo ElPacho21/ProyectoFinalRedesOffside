@@ -335,7 +335,8 @@ if vp is None:
 st.header("4. Equipo atacante")
 
 # Sugerencia por proximidad del equipo a la pelota
-pelotas  = [d for d in detecciones if d["class_id"] == 0]
+_pelotas_all = [d for d in detecciones if d["class_id"] == 0]
+pelotas  = [max(_pelotas_all, key=lambda d: d["conf"])] if _pelotas_all else []
 team1    = [d for d in detecciones if d["class_id"] == 5]
 team2    = [d for d in detecciones if d["class_id"] == 6]
 sugerencia = None

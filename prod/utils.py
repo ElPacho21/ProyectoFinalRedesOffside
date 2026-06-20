@@ -208,7 +208,8 @@ def calcular_offside(vp, detecciones, equipo_atacante_id, imagen_shape, gol_a_de
 
     atacantes  = [d for d in detecciones if d["class_id"] == equipo_atacante_id]
     equipo_def = [d for d in detecciones if d["class_id"] == equipo_defensor_id]
-    arqueros   = [d for d in detecciones if d["class_id"] == 2]
+    _arqueros_all = [d for d in detecciones if d["class_id"] == 2]
+    arqueros   = [max(_arqueros_all, key=lambda d: d["conf"])] if _arqueros_all else []
     defensores = equipo_def + arqueros
 
     if not atacantes:
@@ -227,8 +228,18 @@ def calcular_offside(vp, detecciones, equipo_atacante_id, imagen_shape, gol_a_de
     if not arqueros:
         advertencias.append("No se detectó arquero — la referencia de offside puede ser imprecisa.")
 
+    _pelotas_all = [d for d in detecciones if d["class_id"] == 0]
+    pelota = max(_pelotas_all, key=lambda d: d["conf"]) if _pelotas_all else None
+    if pelota is None:
+        advertencias.append("No se detectó pelota — no se puede verificar si el atacante está detrás del balón.")
+
     def proj(det):
         return _proyectar_en_base(pie_jugador(det, modo=punto_referencia), vp, h)
+
+    def proj_centro(det):
+        cx = (det["x1"] + det["x2"]) / 2
+        cy = (det["y1"] + det["y2"]) / 2
+        return _proyectar_en_base((cx, cy), vp, h)
 
     # Determinar en qué lado está el gol
     if gol_a_derecha is None:
@@ -276,11 +287,17 @@ def calcular_offside(vp, detecciones, equipo_atacante_id, imagen_shape, gol_a_de
         penultimo_proj = 0
         penultimo_foot = None
 
+    pelota_proj = proj_centro(pelota) if pelota is not None else None
+
     # Evaluar cada atacante
     atacantes_resultado = []
     for atk in atacantes:
-        atk_proj  = proj(atk)
-        en_offside = (atk_proj > penultimo_proj) if gol_a_derecha else (atk_proj < penultimo_proj)
+        atk_proj = proj(atk)
+        adelantado_al_defensor = (atk_proj > penultimo_proj) if gol_a_derecha else (atk_proj < penultimo_proj)
+        adelantado_a_pelota = True
+        if pelota_proj is not None:
+            adelantado_a_pelota = (atk_proj > pelota_proj) if gol_a_derecha else (atk_proj < pelota_proj)
+        en_offside = adelantado_al_defensor and adelantado_a_pelota
         atacantes_resultado.append((atk, en_offside))
 
     hay_offside = any(os for _, os in atacantes_resultado)
