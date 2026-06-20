@@ -341,10 +341,14 @@ def dibujar_resultado(imagen_pil, detecciones, vp, resultado_offside):
             atk_offside_map[(round(det["x1"]), round(det["y1"]))] = en_offside
 
     # --- Bboxes ---
+    _class_counters = {}
     for det in detecciones:
         cls_id = det["class_id"]
         if cls_id not in _COLORES_BGR:
             continue
+        _class_counters[cls_id] = _class_counters.get(cls_id, 0) + 1
+        n = _class_counters[cls_id]
+
         x1, y1, x2, y2 = int(det["x1"]), int(det["y1"]), int(det["x2"]), int(det["y2"])
         key = (round(det["x1"]), round(det["y1"]))
 
@@ -352,11 +356,11 @@ def dibujar_resultado(imagen_pil, detecciones, vp, resultado_offside):
             en_offside = atk_offside_map[key]
             color  = (0, 0, 220) if en_offside else (0, 200, 50)
             grosor = 3
-            label  = "OFFSIDE" if en_offside else "ONSIDE"
+            label  = f"#{n} OFFSIDE" if en_offside else f"#{n} ONSIDE"
         else:
             color  = _COLORES_BGR[cls_id]
             grosor = 2
-            label  = det["class_name"]
+            label  = f"#{n} {det['class_name']}"
 
         cv2.rectangle(img, (x1, y1), (x2, y2), color, grosor)
         cv2.putText(img, label, (x1, max(y1 - 6, 12)),

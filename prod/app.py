@@ -441,7 +441,12 @@ if (
 
     col_res, col_det = st.columns([3, 1])
     with col_res:
-        st.image(img_final, caption="Imagen con línea de offside anotada", width="stretch")
+        import plotly.express as px
+        _fig = px.imshow(img_final)
+        _fig.update_layout(margin=dict(l=0, r=0, t=0, b=0))
+        _fig.update_xaxes(showticklabels=False)
+        _fig.update_yaxes(showticklabels=False)
+        st.plotly_chart(_fig, use_container_width=True)
 
     with col_det:
         # Veredicto global
@@ -454,9 +459,9 @@ if (
 
         # Detalle por atacante
         st.subheader("Detalle por jugador")
-        for det, en_offside in resultado.get("atacantes_resultado", []):
+        for i, (det, en_offside) in enumerate(resultado.get("atacantes_resultado", []), 1):
             estado = "🔴 OFFSIDE" if en_offside else "🟢 ONSIDE"
-            st.write(f"{det['class_name']} (conf {det['conf']:.0%}): {estado}")
+            st.write(f"#{i} {det['class_name']} (conf {det['conf']:.0%}): {estado}")
 
         if not resultado.get("atacantes_resultado"):
             st.write("No hay atacantes para evaluar.")
