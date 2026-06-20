@@ -27,8 +27,6 @@ from utils import (
     detectar_objetos,
     calcular_offside,
     dibujar_resultado,
-    imagen_pil_a_bgr,
-    detectar_punto_de_fuga,
     punto_de_fuga_desde_puntos,
 )
 
@@ -213,159 +211,144 @@ with col_info:
 # ---------------------------------------------------------------------------
 st.header("3. Punto de fuga (VP)")
 
-# Intentar detección automática con Hough
-imagen_bgr = imagen_pil_a_bgr(imagen_pil)
-vp_auto, _, _ = detectar_punto_de_fuga(imagen_bgr)
+st.info(
+    "**Instrucciones:** hacé clic en 4 puntos sobre la imagen. "
+    "Los puntos **1 y 2** deben estar sobre una línea del campo (ej: línea lateral). "
+    "Los puntos **3 y 4** sobre otra línea paralela (ej: la línea del área). "
+    "El VP se calcula como intersección de esas dos rectas."
+)
 
-if vp_auto:
-    st.success(f"Punto de fuga detectado automáticamente: ({vp_auto[0]:.0f}, {vp_auto[1]:.0f})")
-    usar_manual = st.checkbox("Quiero ajustar el VP manualmente", value=False)
+vp = None
+
+# Intentar usar el canvas interactivo
+_canvas_disponible = False
+try:
+    from streamlit_drawable_canvas import st_canvas
+    _canvas_disponible = True
+except ImportError:
+    pass
+
+if _canvas_disponible:
+    DISPLAY_W = min(1100, ancho_orig)
+    DISPLAY_H = int(DISPLAY_W * alto_orig / ancho_orig)
+
+    # El canvas vive en un iframe (componente custom de Streamlit), así que CSS del padre
+    # no llega. Inyectamos JS que accede al iframe por same-origin y aplica cursor X.
+    _x_svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20">'
+        '<line x1="2" y1="2" x2="18" y2="18" stroke="white" stroke-width="4" stroke-linecap="round"/>'
+        '<line x1="18" y1="2" x2="2" y2="18" stroke="white" stroke-width="4" stroke-linecap="round"/>'
+        '<line x1="2" y1="2" x2="18" y2="18" stroke="black" stroke-width="2" stroke-linecap="round"/>'
+        '<line x1="18" y1="2" x2="2" y2="18" stroke="black" stroke-width="2" stroke-linecap="round"/>'
+        '</svg>'
+    )
+    _cursor_url = (
+        "url('data:image/svg+xml;base64,"
+        + base64.b64encode(_x_svg.encode()).decode()
+        + "') 10 10, crosshair"
+    )
+    st.markdown(
+        f"""
+        <script>
+        (function() {{
+            if (window._vpXCursorInterval) return;
+            var cursorUrl = "{_cursor_url}";
+            window._vpXCursorInterval = setInterval(function() {{
+                document.querySelectorAll('iframe').forEach(function(iframe) {{
+                    try {{
+                        var doc = iframe.contentDocument || iframe.contentWindow.document;
+                        doc.querySelectorAll('canvas').forEach(function(c) {{
+                            c.style.setProperty('cursor', cursorUrl, 'important');
+                        }});
+                    }} catch(e) {{}}
+                }});
+            }}, 200);
+        }})();
+        </script>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    if "canvas_vp_reset" not in st.session_state:
+        st.session_state.canvas_vp_reset = 0
+
+    st.write("**Hacé clic sobre la imagen** para marcar los 4 puntos (aparecen como círculos rojos):")
+    canvas_result = st_canvas(
+        background_image=imagen_pil,
+        drawing_mode="point",
+        point_display_radius=3,
+        stroke_color="#FF3333",
+        fill_color="#FF3333",
+        width=DISPLAY_W,
+        height=DISPLAY_H,
+        key=f"canvas_vp_{st.session_state.canvas_vp_reset}",
+    )
+
+    if canvas_result.json_data:
+        objetos = canvas_result.json_data.get("objects", [])
+        n_pts = len(objetos)
+
+        if n_pts > 4:
+            st.error(f"Máximo 4 puntos permitidos. Marcaste {n_pts}.")
+            if st.button("Limpiar canvas"):
+                st.session_state.canvas_vp_reset += 1
+                st.rerun()
+        else:
+            st.write(f"Puntos marcados: **{n_pts}/4**")
+
+            if n_pts == 4:
+                # Los objetos son círculos pequeños; el centro es (left + radius, top + radius)
+                scale_x = ancho_orig / DISPLAY_W
+                scale_y = alto_orig / DISPLAY_H
+                pts = []
+                for obj in objetos:
+                    r  = obj.get("radius", 0)
+                    cx = (obj["left"] + r) * scale_x
+                    cy = (obj["top"]  + r) * scale_y
+                    pts.append((cx, cy))
+
+                vp_calculado = punto_de_fuga_desde_puntos(pts)
+                if vp_calculado:
+                    st.session_state.vp_manual = vp_calculado
+                    st.success(
+                        f"VP calculado desde puntos manuales: "
+                        f"({vp_calculado[0]:.0f}, {vp_calculado[1]:.0f})"
+                    )
+                else:
+                    st.error(
+                        "Las dos líneas que trazaste son paralelas. "
+                        "Elegí puntos sobre líneas que converjan (no líneas paralelas entre sí)."
+                    )
+
 else:
-    st.warning(
-        "No se pudo detectar el punto de fuga automáticamente "
-        "(común en imágenes de broadcast). Marcá 4 puntos manualmente."
-    )
-    usar_manual = True
+    # Fallback: 4 pares de inputs numéricos
+    st.write("Ingresá las coordenadas en píxeles de los 4 puntos (2 por línea del campo):")
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        p1x = st.number_input("Punto 1 X", min_value=0, max_value=ancho_orig, value=0, key="p1x")
+        p1y = st.number_input("Punto 1 Y", min_value=0, max_value=alto_orig,  value=0, key="p1y")
+    with c2:
+        p2x = st.number_input("Punto 2 X", min_value=0, max_value=ancho_orig, value=0, key="p2x")
+        p2y = st.number_input("Punto 2 Y", min_value=0, max_value=alto_orig,  value=0, key="p2y")
+    with c3:
+        p3x = st.number_input("Punto 3 X", min_value=0, max_value=ancho_orig, value=0, key="p3x")
+        p3y = st.number_input("Punto 3 Y", min_value=0, max_value=alto_orig,  value=0, key="p3y")
+    with c4:
+        p4x = st.number_input("Punto 4 X", min_value=0, max_value=ancho_orig, value=0, key="p4x")
+        p4y = st.number_input("Punto 4 Y", min_value=0, max_value=alto_orig,  value=0, key="p4y")
 
-vp = vp_auto  # puede ser sobreescrito por el modo manual
+    if st.button("Calcular VP desde estos 4 puntos"):
+        pts = [(p1x, p1y), (p2x, p2y), (p3x, p3y), (p4x, p4y)]
+        vp_calculado = punto_de_fuga_desde_puntos(pts)
+        if vp_calculado:
+            st.session_state.vp_manual = vp_calculado
+            st.success(f"VP calculado: ({vp_calculado[0]:.0f}, {vp_calculado[1]:.0f})")
+        else:
+            st.error("Las líneas son paralelas. Elegí puntos diferentes.")
 
-if usar_manual:
-    st.info(
-        "**Instrucciones:** hacé clic en 4 puntos sobre la imagen. "
-        "Los puntos **1 y 2** deben estar sobre una línea del campo (ej: línea lateral). "
-        "Los puntos **3 y 4** sobre otra línea paralela (ej: la línea del área). "
-        "El VP se calcula como intersección de esas dos rectas."
-    )
-
-    # Intentar usar el canvas interactivo
-    _canvas_disponible = False
-    try:
-        from streamlit_drawable_canvas import st_canvas
-        _canvas_disponible = True
-    except ImportError:
-        pass
-
-    if _canvas_disponible:
-        DISPLAY_W = min(700, ancho_orig)
-        DISPLAY_H = int(DISPLAY_W * alto_orig / ancho_orig)
-
-        # El canvas vive en un iframe (componente custom de Streamlit), así que CSS del padre
-        # no llega. Inyectamos JS que accede al iframe por same-origin y aplica cursor X.
-        _x_svg = (
-            '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20">'
-            '<line x1="2" y1="2" x2="18" y2="18" stroke="white" stroke-width="4" stroke-linecap="round"/>'
-            '<line x1="18" y1="2" x2="2" y2="18" stroke="white" stroke-width="4" stroke-linecap="round"/>'
-            '<line x1="2" y1="2" x2="18" y2="18" stroke="black" stroke-width="2" stroke-linecap="round"/>'
-            '<line x1="18" y1="2" x2="2" y2="18" stroke="black" stroke-width="2" stroke-linecap="round"/>'
-            '</svg>'
-        )
-        _cursor_url = (
-            "url('data:image/svg+xml;base64,"
-            + base64.b64encode(_x_svg.encode()).decode()
-            + "') 10 10, crosshair"
-        )
-        st.markdown(
-            f"""
-            <script>
-            (function() {{
-                if (window._vpXCursorInterval) return;
-                var cursorUrl = "{_cursor_url}";
-                window._vpXCursorInterval = setInterval(function() {{
-                    document.querySelectorAll('iframe').forEach(function(iframe) {{
-                        try {{
-                            var doc = iframe.contentDocument || iframe.contentWindow.document;
-                            doc.querySelectorAll('canvas').forEach(function(c) {{
-                                c.style.setProperty('cursor', cursorUrl, 'important');
-                            }});
-                        }} catch(e) {{}}
-                    }});
-                }}, 200);
-            }})();
-            </script>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        if "canvas_vp_reset" not in st.session_state:
-            st.session_state.canvas_vp_reset = 0
-
-        st.write("**Hacé clic sobre la imagen** para marcar los 4 puntos (aparecen como círculos rojos):")
-        canvas_result = st_canvas(
-            background_image=imagen_pil,
-            drawing_mode="point",
-            point_display_radius=3,
-            stroke_color="#FF3333",
-            fill_color="#FF3333",
-            width=DISPLAY_W,
-            height=DISPLAY_H,
-            key=f"canvas_vp_{st.session_state.canvas_vp_reset}",
-        )
-
-        if canvas_result.json_data:
-            objetos = canvas_result.json_data.get("objects", [])
-            n_pts = len(objetos)
-
-            if n_pts > 4:
-                st.error(f"Máximo 4 puntos permitidos. Marcaste {n_pts}.")
-                if st.button("Limpiar canvas"):
-                    st.session_state.canvas_vp_reset += 1
-                    st.rerun()
-            else:
-                st.write(f"Puntos marcados: **{n_pts}/4**")
-
-                if n_pts == 4:
-                    # Los objetos son círculos pequeños; el centro es (left + radius, top + radius)
-                    scale_x = ancho_orig / DISPLAY_W
-                    scale_y = alto_orig / DISPLAY_H
-                    pts = []
-                    for obj in objetos:
-                        r  = obj.get("radius", 0)
-                        cx = (obj["left"] + r) * scale_x
-                        cy = (obj["top"]  + r) * scale_y
-                        pts.append((cx, cy))
-
-                    vp_calculado = punto_de_fuga_desde_puntos(pts)
-                    if vp_calculado:
-                        st.session_state.vp_manual = vp_calculado
-                        st.success(
-                            f"VP calculado desde puntos manuales: "
-                            f"({vp_calculado[0]:.0f}, {vp_calculado[1]:.0f})"
-                        )
-                    else:
-                        st.error(
-                            "Las dos líneas que trazaste son paralelas. "
-                            "Elegí puntos sobre líneas que converjan (no líneas paralelas entre sí)."
-                        )
-
-    else:
-        # Fallback: 4 pares de inputs numéricos
-        st.write("Ingresá las coordenadas en píxeles de los 4 puntos (2 por línea del campo):")
-        c1, c2, c3, c4 = st.columns(4)
-        with c1:
-            p1x = st.number_input("Punto 1 X", min_value=0, max_value=ancho_orig, value=0, key="p1x")
-            p1y = st.number_input("Punto 1 Y", min_value=0, max_value=alto_orig,  value=0, key="p1y")
-        with c2:
-            p2x = st.number_input("Punto 2 X", min_value=0, max_value=ancho_orig, value=0, key="p2x")
-            p2y = st.number_input("Punto 2 Y", min_value=0, max_value=alto_orig,  value=0, key="p2y")
-        with c3:
-            p3x = st.number_input("Punto 3 X", min_value=0, max_value=ancho_orig, value=0, key="p3x")
-            p3y = st.number_input("Punto 3 Y", min_value=0, max_value=alto_orig,  value=0, key="p3y")
-        with c4:
-            p4x = st.number_input("Punto 4 X", min_value=0, max_value=ancho_orig, value=0, key="p4x")
-            p4y = st.number_input("Punto 4 Y", min_value=0, max_value=alto_orig,  value=0, key="p4y")
-
-        if st.button("Calcular VP desde estos 4 puntos"):
-            pts = [(p1x, p1y), (p2x, p2y), (p3x, p3y), (p4x, p4y)]
-            vp_calculado = punto_de_fuga_desde_puntos(pts)
-            if vp_calculado:
-                st.session_state.vp_manual = vp_calculado
-                st.success(f"VP calculado: ({vp_calculado[0]:.0f}, {vp_calculado[1]:.0f})")
-            else:
-                st.error("Las líneas son paralelas. Elegí puntos diferentes.")
-
-    # Usar el VP manual si está disponible
-    if st.session_state.get("vp_manual"):
-        vp = st.session_state.vp_manual
+# Usar el VP manual si está disponible
+if st.session_state.get("vp_manual"):
+    vp = st.session_state.vp_manual
 
 if vp is None:
     st.info("Marcá el punto de fuga para continuar con el análisis.")
