@@ -273,8 +273,9 @@ if _canvas_disponible:
         st.session_state.canvas_vp_reset = 0
 
     st.write("**Hacé clic sobre la imagen** para marcar los 4 puntos (aparecen como círculos rojos):")
+    _bg_canvas = imagen_pil.resize((DISPLAY_W, DISPLAY_H))
     canvas_result = st_canvas(
-        background_image=imagen_pil,
+        background_image=_bg_canvas,
         drawing_mode="point",
         point_display_radius=3,
         stroke_color="#FF3333",
