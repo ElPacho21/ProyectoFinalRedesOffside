@@ -130,7 +130,7 @@ col_img, col_info = st.columns([3, 1])
 
 with col_img:
     img_det = dibujar_resultado(imagen_pil, detecciones, vp=None, resultado_offside=None)
-    st.image(img_det, caption="Bounding boxes detectados", width="stretch")
+    st.image(img_det, caption="Bounding boxes detectados", use_container_width=True)
 
 with col_info:
     st.subheader("Objetos detectados")
@@ -377,7 +377,7 @@ if (
 
     col_res, col_det = st.columns([3, 1])
     with col_res:
-        st.image(img_final, caption="Imagen con línea de offside anotada", width="stretch")
+        st.image(img_final, caption="Imagen con línea de offside anotada", use_container_width=True)
 
     with col_det:
         # Veredicto global
