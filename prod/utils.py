@@ -51,7 +51,7 @@ _COLORES_BGR = {
     0: (255, 255, 255),  # Ball: blanco
     2: (0, 215, 255),    # GoalKeeper: dorado
     4: (0, 165, 255),    # Referee: naranja
-    5: (0,   0, 220),    # TEAM 1: rojo
+    5: (180, 105, 255),  # TEAM 1: rosado
     6: (220, 220,  0),   # TEAM 2: amarillo
 }
 

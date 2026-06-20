@@ -147,7 +147,7 @@ conf = st.slider(
     min_value=0.05,
     max_value=0.90,
     value=0.25,
-    step=0.05,
+    step=0.01,
     help="Confianza mínima requerida para registrar una detección."
 )
 
@@ -363,25 +363,13 @@ equipo_atacante_id = 5 if equipo_atacante == "TEAM 1" else 6
 
 # Controles avanzados para ajustar dirección y defensor de referencia
 with st.expander("Ajustes avanzados de Offside (Dirección y Referencia)"):
-    col_dir, col_ref, col_pie = st.columns(3)
+    col_dir, col_pie = st.columns(2)
     with col_dir:
         dir_ataque = st.radio(
             "Dirección del ataque:",
             ["Detectar automáticamente 🔄", "Ataca hacia la derecha ➡️", "Ataca hacia la izquierda ⬅️"],
             index=0,
             help="Fuerza la dirección en la que el equipo seleccionado está atacando."
-        )
-    with col_ref:
-        ref_defensor = st.selectbox(
-            "Jugador de referencia para la línea:",
-            [
-                "Detectar automáticamente 🔄",
-                "1er jugador más cercano al arco (Último)",
-                "2do jugador más cercano al arco (Penúltimo)",
-                "3er jugador más cercano al arco"
-            ],
-            index=0,
-            help="Elige explícitamente cuál defensor (ordenados desde su propia línea de meta) define la línea de offside."
         )
     with col_pie:
         ref_pie = st.selectbox(
@@ -412,15 +400,6 @@ if _btn_calc or _auto_calc:
     elif dir_ataque == "Ataca hacia la izquierda ⬅️":
         gol_a_derecha_val = False
 
-    # Mapeo del defensor de referencia
-    ref_defender_idx_val = None
-    if ref_defensor == "1er jugador más cercano al arco (Último)":
-        ref_defender_idx_val = 0
-    elif ref_defensor == "2do jugador más cercano al arco (Penúltimo)":
-        ref_defender_idx_val = 1
-    elif ref_defensor == "3er jugador más cercano al arco":
-        ref_defender_idx_val = 2
-
     # Mapeo del punto de referencia (pie)
     punto_referencia_val = "medio"
     if ref_pie == "Punto izquierdo inferior (Izquierda) ◀️":
@@ -434,14 +413,12 @@ if _btn_calc or _auto_calc:
         equipo_atacante_id,
         np.array(imagen_pil).shape,
         gol_a_derecha=gol_a_derecha_val,
-        ref_defender_idx=ref_defender_idx_val,
         punto_referencia=punto_referencia_val,
     )
     st.session_state.resultado             = resultado
     st.session_state.vp_para_resultado     = vp
     st.session_state.equipo_para_resultado = equipo_atacante_id
     st.session_state.last_dir_ataque       = dir_ataque
-    st.session_state.last_ref_defensor     = ref_defensor
     st.session_state.last_ref_pie          = ref_pie
 
 # Mostrar resultado si está disponible (y corresponde al frame/imagen y configuración actuales)
@@ -450,7 +427,6 @@ if (
     and st.session_state.get("last_cache_key") == _cache_key
     and st.session_state.get("equipo_para_resultado") == equipo_atacante_id
     and st.session_state.get("last_dir_ataque") == dir_ataque
-    and st.session_state.get("last_ref_defensor") == ref_defensor
     and st.session_state.get("last_ref_pie") == ref_pie
 ):
     resultado  = st.session_state.resultado
