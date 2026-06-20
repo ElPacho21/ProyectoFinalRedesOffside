@@ -10,7 +10,6 @@ Flujo:
 """
 import sys
 import os
-import base64
 import tempfile
 from pathlib import Path
 from collections import Counter
@@ -18,7 +17,7 @@ from collections import Counter
 import cv2
 import numpy as np
 import streamlit as st
-from PIL import Image
+from PIL import Image, ImageDraw
 
 # Agregar raíz del repo al path (necesario cuando Streamlit corre desde prod/)
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -167,8 +166,8 @@ if (
     st.session_state.detecciones    = None
     st.session_state.resultado      = None
     if _filename_changed:
-        st.session_state.vp_manual      = None
-        st.session_state.canvas_vp_reset = st.session_state.get("canvas_vp_reset", 0) + 1
+        st.session_state.vp_manual = None
+        st.session_state.vp_points = []
 
 if st.session_state.detecciones is None:
     with st.spinner("Detectando jugadores y objetos..."):
@@ -220,106 +219,81 @@ st.info(
 
 vp = None
 
-# Intentar usar el canvas interactivo
-_canvas_disponible = False
+# Componente interactivo para marcar puntos. Usamos streamlit-image-coordinates en
+# vez de streamlit-drawable-canvas porque embebe la imagen como base64 dentro del
+# propio componente, sin depender del endpoint de medios de Streamlit. Ese endpoint
+# queda bloqueado detrás del proxy/HTTPS de Streamlit Cloud (NS_BINDING_ABORTED), que
+# es lo que dejaba el canvas en blanco al deployar aunque funcionara en local.
+_picker_disponible = False
 try:
-    from streamlit_drawable_canvas import st_canvas
-    _canvas_disponible = True
+    from streamlit_image_coordinates import streamlit_image_coordinates
+    _picker_disponible = True
 except ImportError:
     pass
 
-if _canvas_disponible:
+if _picker_disponible:
     DISPLAY_W = min(1100, ancho_orig)
-    DISPLAY_H = int(DISPLAY_W * alto_orig / ancho_orig)
 
-    # El canvas vive en un iframe (componente custom de Streamlit), así que CSS del padre
-    # no llega. Inyectamos JS que accede al iframe por same-origin y aplica cursor X.
-    _x_svg = (
-        '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20">'
-        '<line x1="2" y1="2" x2="18" y2="18" stroke="white" stroke-width="4" stroke-linecap="round"/>'
-        '<line x1="18" y1="2" x2="2" y2="18" stroke="white" stroke-width="4" stroke-linecap="round"/>'
-        '<line x1="2" y1="2" x2="18" y2="18" stroke="black" stroke-width="2" stroke-linecap="round"/>'
-        '<line x1="18" y1="2" x2="2" y2="18" stroke="black" stroke-width="2" stroke-linecap="round"/>'
-        '</svg>'
-    )
-    _cursor_url = (
-        "url('data:image/svg+xml;base64,"
-        + base64.b64encode(_x_svg.encode()).decode()
-        + "') 10 10, crosshair"
-    )
-    st.markdown(
-        f"""
-        <script>
-        (function() {{
-            if (window._vpXCursorInterval) return;
-            var cursorUrl = "{_cursor_url}";
-            window._vpXCursorInterval = setInterval(function() {{
-                document.querySelectorAll('iframe').forEach(function(iframe) {{
-                    try {{
-                        var doc = iframe.contentDocument || iframe.contentWindow.document;
-                        doc.querySelectorAll('canvas').forEach(function(c) {{
-                            c.style.setProperty('cursor', cursorUrl, 'important');
-                        }});
-                    }} catch(e) {{}}
-                }});
-            }}, 200);
-        }})();
-        </script>
-        """,
-        unsafe_allow_html=True,
-    )
+    if "vp_points" not in st.session_state:
+        st.session_state.vp_points = []
 
-    if "canvas_vp_reset" not in st.session_state:
-        st.session_state.canvas_vp_reset = 0
+    _PICKER_KEY = "vp_picker"
+
+    def _add_vp_point():
+        val = st.session_state.get(_PICKER_KEY)
+        if not val or not val.get("width") or not val.get("height"):
+            return
+        if len(st.session_state.vp_points) >= 4:
+            return
+        # El componente devuelve coords sobre la imagen MOSTRADA; reescalamos al
+        # tamaño original con el width/height que él mismo reporta.
+        sx = ancho_orig / val["width"]
+        sy = alto_orig / val["height"]
+        st.session_state.vp_points.append((val["x"] * sx, val["y"] * sy))
 
     st.write("**Hacé clic sobre la imagen** para marcar los 4 puntos (aparecen como círculos rojos):")
-    _bg_canvas = imagen_pil.resize((DISPLAY_W, DISPLAY_H))
-    canvas_result = st_canvas(
-        background_image=_bg_canvas,
-        drawing_mode="point",
-        point_display_radius=3,
-        stroke_color="#FF3333",
-        fill_color="#FF3333",
+
+    # Dibujamos los puntos ya marcados sobre una COPIA (no mutar imagen_pil, que se
+    # reutiliza para las detecciones y el resultado final).
+    _img_marcada = imagen_pil.copy()
+    _draw = ImageDraw.Draw(_img_marcada)
+    _r = max(4, ancho_orig // 200)
+    for _px, _py in st.session_state.vp_points:
+        _draw.ellipse(
+            [_px - _r, _py - _r, _px + _r, _py + _r],
+            fill="#FF3333", outline="white", width=2,
+        )
+
+    streamlit_image_coordinates(
+        _img_marcada,
         width=DISPLAY_W,
-        height=DISPLAY_H,
-        key=f"canvas_vp_{st.session_state.canvas_vp_reset}",
+        key=_PICKER_KEY,
+        on_click=_add_vp_point,
     )
 
-    if canvas_result.json_data:
-        objetos = canvas_result.json_data.get("objects", [])
-        n_pts = len(objetos)
+    n_pts = len(st.session_state.vp_points)
+    _col_cnt, _col_clr = st.columns([3, 1])
+    with _col_cnt:
+        st.write(f"Puntos marcados: **{n_pts}/4**")
+    with _col_clr:
+        if st.button("Limpiar puntos", use_container_width=True):
+            st.session_state.vp_points = []
+            st.session_state.vp_manual = None
+            st.rerun()
 
-        if n_pts > 4:
-            st.error(f"Máximo 4 puntos permitidos. Marcaste {n_pts}.")
-            if st.button("Limpiar canvas"):
-                st.session_state.canvas_vp_reset += 1
-                st.rerun()
+    if n_pts == 4:
+        vp_calculado = punto_de_fuga_desde_puntos(st.session_state.vp_points)
+        if vp_calculado:
+            st.session_state.vp_manual = vp_calculado
+            st.success(
+                f"VP calculado desde puntos manuales: "
+                f"({vp_calculado[0]:.0f}, {vp_calculado[1]:.0f})"
+            )
         else:
-            st.write(f"Puntos marcados: **{n_pts}/4**")
-
-            if n_pts == 4:
-                # Los objetos son círculos pequeños; el centro es (left + radius, top + radius)
-                scale_x = ancho_orig / DISPLAY_W
-                scale_y = alto_orig / DISPLAY_H
-                pts = []
-                for obj in objetos:
-                    r  = obj.get("radius", 0)
-                    cx = (obj["left"] + r) * scale_x
-                    cy = (obj["top"]  + r) * scale_y
-                    pts.append((cx, cy))
-
-                vp_calculado = punto_de_fuga_desde_puntos(pts)
-                if vp_calculado:
-                    st.session_state.vp_manual = vp_calculado
-                    st.success(
-                        f"VP calculado desde puntos manuales: "
-                        f"({vp_calculado[0]:.0f}, {vp_calculado[1]:.0f})"
-                    )
-                else:
-                    st.error(
-                        "Las dos líneas que trazaste son paralelas. "
-                        "Elegí puntos sobre líneas que converjan (no líneas paralelas entre sí)."
-                    )
+            st.error(
+                "Las dos líneas que trazaste son paralelas. "
+                "Elegí puntos sobre líneas que converjan (no líneas paralelas entre sí)."
+            )
 
 else:
     # Fallback: 4 pares de inputs numéricos
