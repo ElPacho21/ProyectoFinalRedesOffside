@@ -1,12 +1,6 @@
 """
 App Streamlit — Detección de Offside en Fútbol
-Semana 4 del TP Integrador de Redes Neuronales Profundas.
-
-Flujo:
-  1. Usuario sube imagen → detección con YOLOv8
-  2. Cálculo del punto de fuga (automático o manual con 4 puntos)
-  3. Selección del equipo atacante
-  4. Algoritmo geométrico de offside → imagen anotada + veredicto
+TP Integrador de Redes Neuronales Profundas.
 """
 import sys
 from pathlib import Path
@@ -16,7 +10,6 @@ import numpy as np
 import streamlit as st
 from PIL import Image
 
-# Agregar raíz del repo al path (necesario cuando Streamlit corre desde prod/)
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from utils import (
     cargar_modelo,
@@ -29,18 +22,76 @@ from utils import (
 )
 
 # ---------------------------------------------------------------------------
-# Configuración de la página
+# Configuración de página
 # ---------------------------------------------------------------------------
 st.set_page_config(
     page_title="Detección de Offside",
     page_icon="⚽",
     layout="wide",
+    initial_sidebar_state="expanded",
 )
-st.title("⚽ Detección de Offside en Fútbol")
-st.caption("TP Integrador — Redes Neuronales Profundas")
 
 # ---------------------------------------------------------------------------
-# Carga del modelo (cacheada para no recargar en cada interacción)
+# CSS mínimo — solo el ícono del botón hamburguesa
+# ---------------------------------------------------------------------------
+st.markdown("""
+<style>
+    [data-testid="stSidebarCollapseButton"] { color: #000; }
+    [data-testid="stSidebarCollapseButton"] svg { color: #000; fill: #000; }
+    [data-testid="collapsedControl"] { color: #000; }
+    [data-testid="collapsedControl"] svg { color: #000; fill: #000; }
+    footer { visibility: hidden; }
+</style>
+""", unsafe_allow_html=True)
+
+# ---------------------------------------------------------------------------
+# Sidebar — toda la configuración
+# ---------------------------------------------------------------------------
+with st.sidebar:
+    st.title("Configuración")
+    st.divider()
+
+    st.subheader("Detección YOLOv8")
+    conf = st.slider(
+        "Confianza mínima",
+        min_value=0.05, max_value=0.90, value=0.25, step=0.05,
+        help="Confianza mínima requerida para registrar una detección.",
+    )
+    iou = st.slider(
+        "Umbral IoU (NMS)",
+        min_value=0.10, max_value=0.95, value=0.70, step=0.05,
+        help="Superposición máxima permitida entre cajas de detección.",
+    )
+    agnostic_nms = st.checkbox(
+        "NMS agnóstico de clase",
+        value=True,
+        help="Evita cajas duplicadas de distintos equipos sobre un mismo jugador.",
+    )
+
+    st.divider()
+
+    st.subheader("Offside")
+    dir_ataque = st.radio(
+        "Dirección del ataque",
+        ["Detectar automáticamente 🔄", "Ataca hacia la derecha ➡️", "Ataca hacia la izquierda ⬅️"],
+        help="Fuerza la dirección en la que el equipo seleccionado está atacando.",
+    )
+    ref_defensor = st.selectbox(
+        "Jugador de referencia",
+        [
+            "Detectar automáticamente 🔄",
+            "1er jugador más cercano al arco (Último)",
+            "2do jugador más cercano al arco (Penúltimo)",
+            "3er jugador más cercano al arco",
+        ],
+        help="Cuál defensor define la línea de offside.",
+    )
+
+    st.divider()
+    st.caption("Pacci · Ocampo · Isgro · Lucero · Costa\nRedes Neuronales Profundas · UTN")
+
+# ---------------------------------------------------------------------------
+# Carga del modelo
 # ---------------------------------------------------------------------------
 @st.cache_resource
 def get_modelo():
@@ -50,7 +101,13 @@ with st.spinner("Cargando modelo YOLOv8..."):
     modelo = get_modelo()
 
 # ---------------------------------------------------------------------------
-# Paso 1: Subida de imagen y configuración de parámetros
+# Header
+# ---------------------------------------------------------------------------
+st.title("⚽ Detección de Offside en Fútbol")
+st.caption("TP Integrador — Redes Neuronales Profundas")
+
+# ---------------------------------------------------------------------------
+# Paso 1: Subida de imagen
 # ---------------------------------------------------------------------------
 st.header("1. Subí una imagen del partido")
 imagen_subida = st.file_uploader(
@@ -62,42 +119,10 @@ if imagen_subida is None:
     st.info("Subí una imagen para comenzar el análisis.")
     st.stop()
 
-# Parámetros de detección de YOLO
-col_conf, col_iou, col_agnostic = st.columns(3)
-with col_conf:
-    conf = st.slider(
-        "Umbral de confianza (Confidence)",
-        min_value=0.05,
-        max_value=0.90,
-        value=0.25,
-        step=0.05,
-        help="Confianza mínima requerida para registrar una detección."
-    )
-with col_iou:
-    iou = st.slider(
-        "Umbral de IoU (NMS)",
-        min_value=0.10,
-        max_value=0.95,
-        value=0.70,
-        step=0.05,
-        help="Superposición máxima permitida entre cajas de detección."
-    )
-with col_agnostic:
-    st.write("") # Espaciadores verticales para centrado
-    st.write("") 
-    agnostic_nms = st.checkbox(
-        "NMS Agnóstico de Clase",
-        value=True,
-        help="Evita que se dibujen cajas duplicadas de distintos equipos sobre un mismo jugador."
-    )
-
 imagen_pil = Image.open(imagen_subida).convert("RGB")
 ancho_orig, alto_orig = imagen_pil.size
 
-# ---------------------------------------------------------------------------
-# Paso 2: Detección con YOLOv8
-# Cacheamos en session_state para evitar redetectar si los parámetros o la imagen no cambiaron.
-# ---------------------------------------------------------------------------
+# Invalidar caché si cambian imagen o parámetros
 if (
     st.session_state.get("last_filename") != imagen_subida.name
     or st.session_state.get("last_conf") != conf
@@ -112,19 +137,18 @@ if (
     st.session_state.vp_manual      = None
     st.session_state.resultado      = None
 
+# ---------------------------------------------------------------------------
+# Paso 2: Detección con YOLOv8
+# ---------------------------------------------------------------------------
 if st.session_state.detecciones is None:
     with st.spinner("Detectando jugadores y objetos..."):
         st.session_state.detecciones = detectar_objetos(
-            modelo,
-            imagen_pil,
-            conf=conf,
-            iou=iou,
-            agnostic_nms=agnostic_nms
+            modelo, imagen_pil, conf=conf, iou=iou, agnostic_nms=agnostic_nms
         )
 
 detecciones = st.session_state.detecciones
+conteo = Counter(d["class_name"] for d in detecciones)
 
-# Mostrar imagen con detecciones y resumen
 st.header("2. Detecciones del modelo")
 col_img, col_info = st.columns([3, 1])
 
@@ -134,19 +158,16 @@ with col_img:
 
 with col_info:
     st.subheader("Objetos detectados")
-    conteo = Counter(d["class_name"] for d in detecciones)
-
     if not conteo:
         st.error("No se detectó ningún objeto en la imagen.")
     else:
         for nombre, n in sorted(conteo.items()):
             st.write(f"- **{nombre}**: {n}")
 
-    # Advertencias de casos límite
     if conteo.get("TEAM 1", 0) == 0 and conteo.get("TEAM 2", 0) == 0:
         st.error("No se detectaron jugadores de ningún equipo. El análisis de offside no es posible.")
     elif conteo.get("TEAM 1", 0) == 0 or conteo.get("TEAM 2", 0) == 0:
-        st.warning("Solo se detectó un equipo. El resultado de offside puede ser poco confiable.")
+        st.warning("Solo se detectó un equipo. El resultado puede ser poco confiable.")
     if conteo.get("GoalKeeper", 0) == 0:
         st.warning("No se detectó arquero. La línea de offside puede ser imprecisa.")
 
@@ -155,7 +176,6 @@ with col_info:
 # ---------------------------------------------------------------------------
 st.header("3. Punto de fuga (VP)")
 
-# Intentar detección automática con Hough
 imagen_bgr = imagen_pil_a_bgr(imagen_pil)
 vp_auto, _, _ = detectar_punto_de_fuga(imagen_bgr)
 
@@ -169,17 +189,16 @@ else:
     )
     usar_manual = True
 
-vp = vp_auto  # puede ser sobreescrito por el modo manual
+vp = vp_auto
 
 if usar_manual:
     st.info(
         "**Instrucciones:** hacé clic en 4 puntos sobre la imagen. "
-        "Los puntos **1 y 2** deben estar sobre una línea del campo (ej: línea lateral). "
-        "Los puntos **3 y 4** sobre otra línea paralela (ej: la línea del área). "
-        "El VP se calcula como intersección de esas dos rectas."
+        "Los puntos **1 y 2** deben estar sobre una línea del campo (ej: lateral). "
+        "Los puntos **3 y 4** sobre otra línea paralela (ej: área). "
+        "El VP se calcula como la intersección de esas dos rectas."
     )
 
-    # Intentar usar el canvas interactivo
     _canvas_disponible = False
     try:
         from streamlit_drawable_canvas import st_canvas
@@ -191,7 +210,7 @@ if usar_manual:
         DISPLAY_W = min(700, ancho_orig)
         DISPLAY_H = int(DISPLAY_W * alto_orig / ancho_orig)
 
-        st.write("**Hacé clic sobre la imagen** para marcar los 4 puntos (aparecen como círculos rojos):")
+        st.write("**Hacé clic sobre la imagen** para marcar los 4 puntos:")
         canvas_result = st_canvas(
             background_image=imagen_pil,
             drawing_mode="point",
@@ -209,7 +228,6 @@ if usar_manual:
             st.write(f"Puntos marcados: **{n_pts}/4**")
 
             if n_pts >= 4:
-                # Los objetos son círculos pequeños; el centro es (left + radius, top + radius)
                 scale_x = ancho_orig / DISPLAY_W
                 scale_y = alto_orig / DISPLAY_H
                 pts = []
@@ -222,18 +240,13 @@ if usar_manual:
                 vp_calculado = punto_de_fuga_desde_puntos(pts)
                 if vp_calculado:
                     st.session_state.vp_manual = vp_calculado
-                    st.success(
-                        f"VP calculado desde puntos manuales: "
-                        f"({vp_calculado[0]:.0f}, {vp_calculado[1]:.0f})"
-                    )
+                    st.success(f"VP calculado: ({vp_calculado[0]:.0f}, {vp_calculado[1]:.0f})")
                 else:
                     st.error(
-                        "Las dos líneas que trazaste son paralelas. "
-                        "Elegí puntos sobre líneas que converjan (no líneas paralelas entre sí)."
+                        "Las dos líneas son paralelas. "
+                        "Elegí puntos sobre líneas que converjan."
                     )
-
     else:
-        # Fallback: 4 pares de inputs numéricos
         st.write("Ingresá las coordenadas en píxeles de los 4 puntos (2 por línea del campo):")
         c1, c2, c3, c4 = st.columns(4)
         with c1:
@@ -258,7 +271,6 @@ if usar_manual:
             else:
                 st.error("Las líneas son paralelas. Elegí puntos diferentes.")
 
-    # Usar el VP manual si está disponible
     if st.session_state.get("vp_manual"):
         vp = st.session_state.vp_manual
 
@@ -267,14 +279,13 @@ if vp is None:
     st.stop()
 
 # ---------------------------------------------------------------------------
-# Paso 4: Selección del equipo atacante
+# Paso 4: Equipo atacante
 # ---------------------------------------------------------------------------
 st.header("4. Equipo atacante")
 
-# Sugerencia por proximidad del equipo a la pelota
-pelotas  = [d for d in detecciones if d["class_id"] == 0]
-team1    = [d for d in detecciones if d["class_id"] == 5]
-team2    = [d for d in detecciones if d["class_id"] == 6]
+pelotas = [d for d in detecciones if d["class_id"] == 0]
+team1   = [d for d in detecciones if d["class_id"] == 5]
+team2   = [d for d in detecciones if d["class_id"] == 6]
 sugerencia = None
 
 if pelotas and (team1 or team2):
@@ -298,51 +309,22 @@ default_idx = opciones.index(sugerencia) if sugerencia in opciones else 0
 equipo_atacante    = st.radio("¿Qué equipo está atacando?", opciones, index=default_idx, horizontal=True)
 equipo_atacante_id = 5 if equipo_atacante == "TEAM 1" else 6
 
-# Controles avanzados para ajustar dirección y defensor de referencia
-with st.expander("Ajustes avanzados de Offside (Dirección y Referencia)"):
-    col_dir, col_ref = st.columns(2)
-    with col_dir:
-        dir_ataque = st.radio(
-            "Dirección del ataque:",
-            ["Detectar automáticamente 🔄", "Ataca hacia la derecha ➡️", "Ataca hacia la izquierda ⬅️"],
-            index=0,
-            help="Fuerza la dirección en la que el equipo seleccionado está atacando."
-        )
-    with col_ref:
-        ref_defensor = st.selectbox(
-            "Jugador de referencia para la línea:",
-            [
-                "Detectar automáticamente 🔄",
-                "1er jugador más cercano al arco (Último)",
-                "2do jugador más cercano al arco (Penúltimo)",
-                "3er jugador más cercano al arco"
-            ],
-            index=0,
-            help="Elige explícitamente cuál defensor (ordenados desde su propia línea de meta) define la línea de offside."
-        )
-
 # ---------------------------------------------------------------------------
-# Paso 5: Cálculo de offside
+# Paso 5: Resultado de offside
 # ---------------------------------------------------------------------------
 st.header("5. Resultado de offside")
 
+# Mapeos desde sidebar
+gol_a_derecha_val = None
+if dir_ataque == "Ataca hacia la derecha ➡️":   gol_a_derecha_val = True
+elif dir_ataque == "Ataca hacia la izquierda ⬅️": gol_a_derecha_val = False
+
+ref_defender_idx_val = None
+if ref_defensor == "1er jugador más cercano al arco (Último)":   ref_defender_idx_val = 0
+elif ref_defensor == "2do jugador más cercano al arco (Penúltimo)": ref_defender_idx_val = 1
+elif ref_defensor == "3er jugador más cercano al arco":           ref_defender_idx_val = 2
+
 if st.button("Calcular offside", type="primary", use_container_width=True):
-    # Mapeo de dirección del ataque
-    gol_a_derecha_val = None
-    if dir_ataque == "Ataca hacia la derecha ➡️":
-        gol_a_derecha_val = True
-    elif dir_ataque == "Ataca hacia la izquierda ⬅️":
-        gol_a_derecha_val = False
-
-    # Mapeo del defensor de referencia
-    ref_defender_idx_val = None
-    if ref_defensor == "1er jugador más cercano al arco (Último)":
-        ref_defender_idx_val = 0
-    elif ref_defensor == "2do jugador más cercano al arco (Penúltimo)":
-        ref_defender_idx_val = 1
-    elif ref_defensor == "3er jugador más cercano al arco":
-        ref_defender_idx_val = 2
-
     resultado = calcular_offside(
         vp,
         detecciones,
@@ -357,7 +339,6 @@ if st.button("Calcular offside", type="primary", use_container_width=True):
     st.session_state.last_dir_ataque       = dir_ataque
     st.session_state.last_ref_defensor     = ref_defensor
 
-# Mostrar resultado si está disponible (y corresponde a la imagen y configuración actuales)
 if (
     st.session_state.get("resultado") is not None
     and st.session_state.get("last_filename") == imagen_subida.name
@@ -365,30 +346,24 @@ if (
     and st.session_state.get("last_dir_ataque") == dir_ataque
     and st.session_state.get("last_ref_defensor") == ref_defensor
 ):
-    resultado  = st.session_state.resultado
-    vp_final   = st.session_state.vp_para_resultado
+    resultado = st.session_state.resultado
+    vp_final  = st.session_state.vp_para_resultado
 
-    # Advertencias del algoritmo
     for adv in resultado.get("advertencias", []):
         st.warning(adv)
 
-    # Imagen anotada con línea de offside
-    img_final = dibujar_resultado(imagen_pil, detecciones, vp_final, resultado)
+    if resultado["hay_offside"]:
+        st.error("🚩 OFFSIDE")
+    else:
+        st.success("✅ ONSIDE (posición legal)")
 
+    img_final = dibujar_resultado(imagen_pil, detecciones, vp_final, resultado)
     col_res, col_det = st.columns([3, 1])
+
     with col_res:
         st.image(img_final, caption="Imagen con línea de offside anotada", use_container_width=True)
 
     with col_det:
-        # Veredicto global
-        if resultado["hay_offside"]:
-            st.error("🚩 OFFSIDE")
-        else:
-            st.success("✅ ONSIDE (posición legal)")
-
-        st.divider()
-
-        # Detalle por atacante
         st.subheader("Detalle por jugador")
         for det, en_offside in resultado.get("atacantes_resultado", []):
             estado = "🔴 OFFSIDE" if en_offside else "🟢 ONSIDE"
