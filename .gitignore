@@ -22,6 +22,7 @@ data/combined/
 # Variables de entorno sensibles
 .env
 .env.*
+!.env.example
 
 # Python
 __pycache__/
@@ -38,3 +39,11 @@ env/
 # OS
 .DS_Store
 Thumbs.db
+
+# Frontend
+node_modules/
+dist/
+.vite/
+
+# Backend
+backend/__pycache__/

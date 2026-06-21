@@ -1,0 +1,11 @@
+fastapi>=0.130.0
+uvicorn[standard]>=0.30.0
+python-multipart>=0.0.10
+python-dotenv>=1.0.0
+pillow==12.2.0
+numpy==2.4.6
+opencv-python-headless==4.10.0.84
+ultralytics==8.4.66
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.12.0+cpu
+torchvision==0.27.0+cpu
