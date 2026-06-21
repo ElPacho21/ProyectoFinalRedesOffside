@@ -150,12 +150,14 @@ export default function Step1Upload({ loading, onDetect, onExtractFrame }) {
         /* ── Media card ─────────────────────────────────────────── */
         <div className="rounded-2xl overflow-hidden border border-border-subtle">
           <div className="relative bg-black" style={{ minHeight: '50vh' }}>
-            <img
-              src={preview}
-              alt="preview"
-              className="w-full block object-contain"
-              style={{ maxHeight: '72vh' }}
-            />
+            {preview && (
+              <img
+                src={preview}
+                alt="preview"
+                className="w-full block object-contain"
+                style={{ maxHeight: '72vh' }}
+              />
+            )}
 
             {(frameLoading || loading) && (
               <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3"
