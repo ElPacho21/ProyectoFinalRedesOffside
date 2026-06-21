@@ -198,7 +198,7 @@ export default function Step3VP({
               src={`data:image/jpeg;base64,${detectedImageB64}`}
               alt="Campo"
               className="block"
-              style={{ display: 'block', width: '100%', height: 'auto', opacity: 0.5 }}
+              style={{ display: 'block', width: '100%', height: 'auto', opacity: 0.4 }}
               onLoad={() => setImgReady(true)}
             />
           )}
