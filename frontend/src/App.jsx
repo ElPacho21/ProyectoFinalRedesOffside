@@ -15,6 +15,7 @@ const INITIAL_STATE = {
   detectedImageB64: null,
   detections: [],
   vpAuto: null,
+  vpLines: null,
   vpFinal: null,
   classCount: {},
   teamSamples: { team1: null, team2: null },
@@ -44,6 +45,7 @@ export default function App() {
         detectedImageB64: data.detected_image_b64,
         detections: data.detections,
         vpAuto: data.vp,
+        vpLines: data.vp_lines,
         vpFinal: data.vp,
         classCount: data.class_counts,
         teamSamples: data.team_samples,
@@ -64,13 +66,13 @@ export default function App() {
     return data
   }
 
-  const handleCalculateOffside = async () => {
+  const handleCalculateOffside = async (vp) => {
     set({ loading: true, error: null })
     try {
       const { data } = await api.post('/api/calculate-offside', {
         image_b64: s.originalImageB64,
         detections: s.detections,
-        vp: s.vpFinal,
+        vp: vp ?? s.vpFinal,
         attacking_team_id: s.attackingTeam,
         goal_on_right: s.goalOnRight,
         reference_point: s.referencePoint,
@@ -145,6 +147,7 @@ export default function App() {
               detectedImageB64={s.detectedImageB64}
               imageSize={s.imageSize}
               vpAuto={s.vpAuto}
+              vpLines={s.vpLines}
               onVPChange={(vp) => set({ vpFinal: vp })}
               loading={s.loading}
               onCalculate={handleCalculateOffside}

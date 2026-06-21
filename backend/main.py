@@ -126,7 +126,7 @@ async def detect(
     detected_img = dibujar_resultado(img, detections, None, None)
 
     img_bgr = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
-    vp, _, _ = detectar_punto_de_fuga(img_bgr)
+    vp, grupo_a, grupo_b = detectar_punto_de_fuga(img_bgr)
 
     class_counts: dict = {}
     for d in detections:
@@ -145,10 +145,35 @@ async def detect(
         "image_b64": _pil_to_b64(img),
         "detected_image_b64": _pil_to_b64(detected_img),
         "vp": {"x": float(vp[0]), "y": float(vp[1])} if vp else None,
+        "vp_lines": {
+            "a": [[int(x1), int(y1), int(x2), int(y2)] for x1, y1, x2, y2 in grupo_a],
+            "b": [[int(x1), int(y1), int(x2), int(y2)] for x1, y1, x2, y2 in grupo_b],
+        },
         "team_samples": team_samples,
         "class_counts": class_counts,
         "image_size": {"width": w, "height": h},
     }
+
+
+class VPFromLinesRequest(BaseModel):
+    lines_a: List[List[float]]
+    lines_b: List[List[float]]
+    image_width: float
+    image_height: float
+
+
+@app.post("/api/vp-from-lines")
+async def vp_from_lines(req: VPFromLinesRequest):
+    from hough import _ransac_vp
+    segs = [(x1, y1, x2, y2) for x1, y1, x2, y2 in req.lines_a + req.lines_b]
+    angulos = []
+    import numpy as np
+    for x1, y1, x2, y2 in req.lines_a:
+        angulos.append(float(np.degrees(np.arctan2(y2 - y1, x2 - x1))))
+    for x1, y1, x2, y2 in req.lines_b:
+        angulos.append(float(np.degrees(np.arctan2(y2 - y1, x2 - x1))))
+    vp, _, _ = _ransac_vp(segs, angulos, req.image_width, req.image_height)
+    return {"vp": {"x": float(vp[0]), "y": float(vp[1])} if vp else None}
 
 
 class Detection(BaseModel):
