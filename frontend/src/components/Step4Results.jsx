@@ -1,19 +1,86 @@
-import { useRef, useState } from 'react'
+import { useRef, useState, useEffect } from 'react'
 import { IconZoomIn, IconZoomOut, IconRefresh, IconAlertTriangle, IconFlag, IconShieldCheck } from '@tabler/icons-react'
 
 export default function Step4Results({ resultImageB64, resultado, imageSize, onReset }) {
   const [zoom,         setZoom]         = useState(1)
+  const [naturalSize,  setNaturalSize]  = useState({ w: 0, h: 0 })
   const [hoveredIndex, setHoveredIndex] = useState(null)
   const [tooltipPos,   setTooltipPos]   = useState({ x: 0, y: 0 })
 
-  // Refs to overlay divs — used to anchor tooltip above player bbox
-  const overlayRefs = useRef([])
-  // Debounce ref to prevent flicker when moving between card and image overlay
-  const clearRef    = useRef(null)
+  const overlayRefs    = useRef([])
+  const defOverlayRef  = useRef(null)
+  const clearRef       = useRef(null)
+  const scrollRef     = useRef(null)
+  const contentDivRef = useRef(null)
+  const spacerDivRef  = useRef(null)
+  const zoomRef       = useRef(1)
+  const naturalRef    = useRef({ w: 0, h: 0 })
+  const isDragging    = useRef(false)
+  const lastPos       = useRef({ x: 0, y: 0 })
+
+  useEffect(() => { zoomRef.current = zoom }, [zoom])
+
+  // Ctrl+Scroll — direct DOM manipulation: transform + scroll in same synchronous call, no flicker
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const handler = (e) => {
+      if (!e.ctrlKey) return
+      e.preventDefault()
+      const rect     = el.getBoundingClientRect()
+      const viewX    = e.clientX - rect.left
+      const viewY    = e.clientY - rect.top
+      const contentX = el.scrollLeft + viewX
+      const contentY = el.scrollTop  + viewY
+      const oldZoom  = zoomRef.current
+      const newZoom  = Math.max(1, Math.min(5, oldZoom + (e.deltaY > 0 ? -0.15 : 0.15)))
+      zoomRef.current = newZoom
+
+      if (contentDivRef.current)
+        contentDivRef.current.style.transform = `scale(${newZoom})`
+      const ns = naturalRef.current
+      if (spacerDivRef.current && ns.w > 0) {
+        spacerDivRef.current.style.width  = `${ns.w * newZoom}px`
+        spacerDivRef.current.style.height = `${ns.h * newZoom}px`
+      }
+      el.scrollLeft = contentX * (newZoom / oldZoom) - viewX
+      el.scrollTop  = contentY * (newZoom / oldZoom) - viewY
+
+      setZoom(newZoom) // only for toolbar % display
+    }
+    el.addEventListener('wheel', handler, { passive: false })
+    return () => el.removeEventListener('wheel', handler)
+  }, [])
+
+  // Drag-to-pan
+  useEffect(() => {
+    const onMove = (e) => {
+      if (!isDragging.current) return
+      const dx = e.clientX - lastPos.current.x
+      const dy = e.clientY - lastPos.current.y
+      lastPos.current = { x: e.clientX, y: e.clientY }
+      if (scrollRef.current) {
+        scrollRef.current.scrollLeft -= dx
+        scrollRef.current.scrollTop  -= dy
+      }
+    }
+    const onUp = () => {
+      if (!isDragging.current) return
+      isDragging.current = false
+      document.body.style.cursor     = ''
+      document.body.style.userSelect = ''
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup',   onUp)
+    return () => {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup',   onUp)
+    }
+  }, [])
 
   if (!resultado || !resultImageB64) return null
 
-  const { hay_offside, atacantes_resultado = [], advertencias = [] } = resultado
+  const { hay_offside, atacantes_resultado = [], advertencias = [], penultimo_defensor, pelota } = resultado
   const offsideCount = atacantes_resultado.filter((x) => x.offside).length
   const onsideCount  = atacantes_resultado.filter((x) => !x.offside).length
 
@@ -28,18 +95,17 @@ export default function Step4Results({ resultImageB64, resultado, imageSize, onR
     clearRef.current = setTimeout(() => setHoveredIndex(null), 200)
   }
 
-  const handleWheel = (e) => {
-    if (!e.ctrlKey) return
-    e.preventDefault()
-    setZoom((z) => Math.max(0.4, Math.min(5, z + (e.deltaY > 0 ? -0.15 : 0.15))))
-  }
+  const hoveredItem  = hoveredIndex !== null ? atacantes_resultado[hoveredIndex] : null
+  const showBallRef  = !!(hoveredItem?.adelantado_al_defensor && !hoveredItem?.adelantado_a_pelota)
+  const showDefRef   = hoveredIndex !== null && !showBallRef
 
-  const hoveredItem = hoveredIndex !== null ? atacantes_resultado[hoveredIndex] : null
+  const spacerW = naturalSize.w > 0 ? naturalSize.w * zoom : '100%'
+  const spacerH = naturalSize.h > 0 ? naturalSize.h * zoom : 'auto'
 
   return (
     <div className="space-y-4 animate-fade-in">
 
-      {/* ── Compact verdict bar ─────────────────────────────────── */}
+      {/* ── Verdict bar ─────────────────────────────────────────── */}
       <div
         className="rounded-2xl px-5 py-3.5 flex items-center gap-4 relative overflow-hidden"
         style={{
@@ -54,12 +120,10 @@ export default function Step4Results({ resultImageB64, resultado, imageSize, onR
           ? <IconFlag size={22} stroke={1.5} className="text-danger shrink-0" />
           : <IconShieldCheck size={22} stroke={1.5} className="text-accent shrink-0" />
         }
-
         <span className="font-display font-800 text-2xl tracking-tight"
           style={{ color: hay_offside ? '#f43f5e' : '#22c55e' }}>
           {hay_offside ? 'OFFSIDE' : 'ONSIDE'}
         </span>
-
         <div className="flex items-center gap-3 ml-1">
           {offsideCount > 0 && (
             <div className="flex items-center gap-1.5">
@@ -74,7 +138,6 @@ export default function Step4Results({ resultImageB64, resultado, imageSize, onR
             </div>
           )}
         </div>
-
         <button onClick={onReset}
           className="btn-ghost ml-auto py-1.5 px-4 text-sm font-600 flex items-center gap-2 shrink-0">
           <IconRefresh size={13} stroke={2.5} />
@@ -82,15 +145,15 @@ export default function Step4Results({ resultImageB64, resultado, imageSize, onR
         </button>
       </div>
 
-      {/* ── Result image — full width ───────────────────────────── */}
+      {/* ── Image ───────────────────────────────────────────────── */}
       <div className="glass rounded-2xl overflow-hidden">
         <div className="px-4 py-2.5 border-b border-border-subtle flex items-center justify-between">
           <span className="text-xs font-600 text-tx-muted">
             Resultado
-            <span className="ml-2 font-400 opacity-40">Ctrl+Scroll para zoom · hover para info</span>
+            <span className="ml-2 font-400 opacity-40">Ctrl+Scroll para zoom · arrastrar para mover</span>
           </span>
           <div className="flex items-center gap-1">
-            <button onClick={() => setZoom(z => Math.max(0.4, z - 0.2))}
+            <button onClick={() => setZoom(z => Math.max(1, z - 0.2))}
               className="btn-ghost w-7 h-7 flex items-center justify-center rounded-lg">
               <IconZoomOut size={14} stroke={2.5} />
             </button>
@@ -108,49 +171,133 @@ export default function Step4Results({ resultImageB64, resultado, imageSize, onR
           </div>
         </div>
 
-        <div className="overflow-auto bg-black" onWheel={handleWheel}>
-          <div style={{ width: `${zoom * 100}%`, minWidth: '100%', position: 'relative', display: 'inline-block' }}>
-            <img
-              src={`data:image/jpeg;base64,${resultImageB64}`}
-              alt="Resultado"
-              className="w-full block"
-              draggable={false}
-            />
-            {imageSize && atacantes_resultado.map((item, i) => {
-              const d = item.detection
-              const isHovered = hoveredIndex === i
-              return (
-                <div
-                  key={i}
-                  ref={(el) => overlayRefs.current[i] = el}
-                  style={{
-                    position: 'absolute',
-                    left:   `${(d.x1 / imageSize.width)  * 100}%`,
-                    top:    `${(d.y1 / imageSize.height) * 100}%`,
-                    width:  `${((d.x2 - d.x1) / imageSize.width)  * 100}%`,
-                    height: `${((d.y2 - d.y1) / imageSize.height) * 100}%`,
-                    cursor: 'pointer',
-                    borderRadius: '3px',
-                    transition: 'background 0.15s, outline 0.15s',
-                    background: isHovered
-                      ? (item.offside ? 'rgba(244,63,94,0.22)' : 'rgba(34,197,94,0.22)')
-                      : 'transparent',
-                    outline: isHovered
-                      ? `2px solid ${item.offside ? '#f43f5e' : '#22c55e'}`
-                      : 'none',
-                  }}
-                  onMouseEnter={() => onEnter(i)}
-                  onMouseLeave={onLeave}
-                />
-              )
-            })}
+        <div
+          ref={scrollRef}
+          className="overflow-auto bg-black"
+          style={{ cursor: 'grab', maxHeight: '100vh' }}
+          onMouseDown={(e) => {
+            if (e.button !== 0) return
+            isDragging.current = true
+            lastPos.current = { x: e.clientX, y: e.clientY }
+            document.body.style.cursor     = 'grabbing'
+            document.body.style.userSelect = 'none'
+          }}
+        >
+          <div
+            ref={spacerDivRef}
+            style={{ position: 'relative', width: spacerW, height: spacerH, minWidth: '100%' }}
+          >
+            <div
+              ref={contentDivRef}
+              style={{
+                position: 'absolute', top: 0, left: 0,
+                transformOrigin: 'top left',
+                transform: `scale(${zoom})`,
+                width: naturalSize.w > 0 ? naturalSize.w : '100%',
+                willChange: 'transform',
+              }}
+            >
+              <img
+                src={`data:image/jpeg;base64,${resultImageB64}`}
+                alt="Resultado"
+                style={{ display: 'block', width: '100%' }}
+                draggable={false}
+                onLoad={(e) => {
+                  const w = e.target.offsetWidth
+                  const h = e.target.offsetHeight
+                  naturalRef.current = { w, h }
+                  setNaturalSize({ w, h })
+                }}
+              />
+              {/* Defender overlay — visible when any attacker is hovered */}
+              {/* Defender overlay */}
+              {imageSize && penultimo_defensor && (() => {
+                const d = penultimo_defensor
+                return (
+                  <div
+                    ref={defOverlayRef}
+                    style={{
+                      position: 'absolute',
+                      left:   `${(d.x1 / imageSize.width)  * 100}%`,
+                      top:    `${(d.y1 / imageSize.height) * 100}%`,
+                      width:  `${((d.x2 - d.x1) / imageSize.width)  * 100}%`,
+                      height: `${((d.y2 - d.y1) / imageSize.height) * 100}%`,
+                      borderRadius: '3px',
+                      pointerEvents: 'none',
+                      transition: 'background 0.15s, outline 0.15s, box-shadow 0.15s',
+                      background: showDefRef ? 'rgba(251,191,36,0.3)' : 'transparent',
+                      outline: showDefRef ? '3px solid #fbbf24' : 'none',
+                      boxShadow: showDefRef
+                        ? '0 0 0 4px rgba(251,191,36,0.2), inset 0 0 20px rgba(251,191,36,0.15)'
+                        : 'none',
+                    }}
+                  />
+                )
+              })()}
+
+              {/* Ball overlay */}
+              {imageSize && pelota && (() => {
+                const d = pelota
+                return (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      left:   `${(d.x1 / imageSize.width)  * 100}%`,
+                      top:    `${(d.y1 / imageSize.height) * 100}%`,
+                      width:  `${((d.x2 - d.x1) / imageSize.width)  * 100}%`,
+                      height: `${((d.y2 - d.y1) / imageSize.height) * 100}%`,
+                      borderRadius: '50%',
+                      pointerEvents: 'none',
+                      transition: 'background 0.15s, outline 0.15s, box-shadow 0.15s',
+                      background: showBallRef ? 'rgba(251,191,36,0.3)' : 'transparent',
+                      outline: showBallRef ? '3px solid #fbbf24' : 'none',
+                      boxShadow: showBallRef
+                        ? '0 0 0 4px rgba(251,191,36,0.2), inset 0 0 20px rgba(251,191,36,0.15)'
+                        : 'none',
+                    }}
+                  />
+                )
+              })()}
+
+              {imageSize && atacantes_resultado.map((item, i) => {
+                const d = item.detection
+                const isHovered = hoveredIndex === i
+                return (
+                  <div
+                    key={i}
+                    ref={(el) => overlayRefs.current[i] = el}
+                    style={{
+                      position: 'absolute',
+                      left:   `${(d.x1 / imageSize.width)  * 100}%`,
+                      top:    `${(d.y1 / imageSize.height) * 100}%`,
+                      width:  `${((d.x2 - d.x1) / imageSize.width)  * 100}%`,
+                      height: `${((d.y2 - d.y1) / imageSize.height) * 100}%`,
+                      cursor: 'pointer',
+                      borderRadius: '3px',
+                      transition: 'background 0.15s, outline 0.15s',
+                      background: isHovered
+                        ? (item.offside ? 'rgba(244,63,94,0.35)' : 'rgba(34,197,94,0.35)')
+                        : 'transparent',
+                      outline: isHovered
+                        ? `3px solid ${item.offside ? '#f43f5e' : '#22c55e'}`
+                        : 'none',
+                      boxShadow: isHovered
+                        ? `0 0 0 4px ${item.offside ? 'rgba(244,63,94,0.2)' : 'rgba(34,197,94,0.2)'}, inset 0 0 20px ${item.offside ? 'rgba(244,63,94,0.15)' : 'rgba(34,197,94,0.15)'}`
+                        : 'none',
+                    }}
+                    onMouseEnter={() => { if (!isDragging.current) onEnter(i) }}
+                    onMouseLeave={onLeave}
+                  />
+                )
+              })}
+            </div>
           </div>
         </div>
       </div>
 
-      {/* ── Player chips — horizontal scrollable strip ───────────── */}
-      <div className="glass rounded-2xl p-3">
-        <div className="flex items-center gap-2 overflow-x-auto pb-0.5" style={{ scrollbarWidth: 'none' }}>
+      {/* ── Player chips ────────────────────────────────────────── */}
+      <div className="glass rounded-2xl overflow-x-auto px-3" style={{ scrollbarWidth: 'none', paddingTop: '10px', paddingBottom: '10px' }}>
+        <div className="flex items-center gap-2">
           <span className="text-[10px] font-700 uppercase tracking-widest text-tx-muted shrink-0 pr-2 border-r border-border-subtle">
             Atacantes
           </span>
@@ -169,16 +316,17 @@ export default function Step4Results({ resultImageB64, resultado, imageSize, onR
                   border: `1px solid ${isHovered
                     ? (item.offside ? 'rgba(244,63,94,0.5)' : 'rgba(34,197,94,0.5)')
                     : (item.offside ? 'rgba(244,63,94,0.2)' : 'rgba(34,197,94,0.18)')}`,
-                  transform: isHovered ? 'translateY(-2px)' : 'none',
+                  transform: isHovered ? 'translateY(-3px)' : 'none',
+                  boxShadow: isHovered
+                    ? (item.offside ? '0 0 12px rgba(244,63,94,0.4)' : '0 0 12px rgba(34,197,94,0.4)')
+                    : 'none',
                 }}
                 onMouseEnter={() => onEnter(i)}
                 onMouseLeave={onLeave}
               >
                 <span className="text-[11px] font-700 text-tx-primary">#{i + 1}</span>
-                <span
-                  className="text-[10px] font-800 tracking-wide"
-                  style={{ color: item.offside ? '#f43f5e' : '#22c55e' }}
-                >
+                <span className="text-[10px] font-800 tracking-wide"
+                  style={{ color: item.offside ? '#f43f5e' : '#22c55e' }}>
                   {item.offside ? 'OFFSIDE' : 'OK'}
                 </span>
                 <span className="text-[10px] text-tx-muted font-mono">
@@ -187,16 +335,28 @@ export default function Step4Results({ resultImageB64, resultado, imageSize, onR
               </button>
             )
           })}
-          {advertencias.length > 0 && (
-            <div className="flex items-center gap-1.5 ml-auto shrink-0 pl-2 border-l border-border-subtle">
-              <IconAlertTriangle size={12} stroke={2} className="text-warn" />
-              <span className="text-[10px] text-warn font-600">{advertencias.length} advertencia{advertencias.length > 1 ? 's' : ''}</span>
-            </div>
-          )}
         </div>
       </div>
 
-      {/* Tooltip — position only updates while hovering */}
+      {/* ── Advertencias ────────────────────────────────────────── */}
+      {advertencias.length > 0 && (
+        <div className="rounded-2xl px-5 py-3.5 flex flex-col gap-2"
+          style={{ background: 'rgba(245,158,11,0.05)', border: '1px solid rgba(245,158,11,0.2)' }}>
+          <div className="flex items-center gap-2">
+            <IconAlertTriangle size={14} stroke={2} className="text-warn shrink-0" />
+            <span className="text-[11px] font-700 uppercase tracking-widest text-warn">
+              Advertencia{advertencias.length > 1 ? 's' : ''}
+            </span>
+          </div>
+          <ul className="space-y-1">
+            {advertencias.map((w, i) => (
+              <li key={i} className="text-sm text-tx-secondary leading-relaxed">{w}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* ── Tooltip anchored above player bbox ──────────────────── */}
       {hoveredItem && (
         <div
           className="tooltip-box pointer-events-none"
@@ -218,18 +378,17 @@ export default function Step4Results({ resultImageB64, resultado, imageSize, onR
               <span className="text-tx-muted">Confianza</span>
               <span className="text-tx-primary font-600">{(hoveredItem.detection.conf * 100).toFixed(1)}%</span>
             </div>
-            <div className="flex justify-between gap-6">
-              <span className="text-tx-muted">Clase ID</span>
-              <span className="text-tx-primary font-mono">{hoveredItem.detection.class_id}</span>
-            </div>
-            <div className="mt-2 pt-2 border-t border-border-subtle">
-              <p className="text-tx-muted text-[10px] mb-1 uppercase tracking-wider">BBox (px)</p>
-              <p className="font-mono text-[11px] text-tx-secondary">
-                ({Math.round(hoveredItem.detection.x1)}, {Math.round(hoveredItem.detection.y1)})
-                {' → '}
-                ({Math.round(hoveredItem.detection.x2)}, {Math.round(hoveredItem.detection.y2)})
-              </p>
-            </div>
+            {showBallRef && pelota ? (
+              <div className="mt-2 pt-2 border-t border-border-subtle flex justify-between gap-6">
+                <span style={{ color: '#fbbf24' }}>vs. pelota</span>
+                <span className="text-tx-primary font-600">{pelota.class_name}</span>
+              </div>
+            ) : penultimo_defensor ? (
+              <div className="mt-2 pt-2 border-t border-border-subtle flex justify-between gap-6">
+                <span style={{ color: '#fbbf24' }}>vs. defensor</span>
+                <span className="text-tx-primary font-600">{penultimo_defensor.class_name}</span>
+              </div>
+            ) : null}
           </div>
         </div>
       )}

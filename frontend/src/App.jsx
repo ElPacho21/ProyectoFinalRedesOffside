@@ -7,8 +7,7 @@ import Step2TeamConfig from './components/Step2TeamConfig'
 import Step3VP from './components/Step3VP'
 import Step4Results from './components/Step4Results'
 
-const CONFIDENCE = 0.25
-const IOU        = 0.7
+const IOU = 0.7
 
 const INITIAL_STATE = {
   step: 1,
@@ -38,7 +37,6 @@ export default function App() {
     try {
       const form = new FormData()
       form.append('image', imageFile, 'image.jpg')
-      form.append('confidence', CONFIDENCE)
       form.append('iou', IOU)
       const { data } = await api.post('/api/detect', form)
       set({

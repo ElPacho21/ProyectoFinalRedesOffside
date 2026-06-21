@@ -111,7 +111,6 @@ async def extract_frame(
 @app.post("/api/detect")
 async def detect(
     image: UploadFile = File(...),
-    confidence: float = Form(0.25),
     iou: float = Form(0.7),
 ):
     if _model is None:
@@ -123,7 +122,7 @@ async def detect(
     except Exception:
         raise HTTPException(status_code=400, detail="Imagen inválida.")
 
-    detections = detectar_objetos(_model, img, conf=confidence, iou=iou)
+    detections = detectar_objetos(_model, img, iou=iou)
     detected_img = dibujar_resultado(img, detections, None, None)
 
     img_bgr = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
@@ -203,12 +202,18 @@ async def calculate_offside_endpoint(req: OffsideRequest):
     result_img = dibujar_resultado(img, dets, vp, resultado)
 
     atacantes_serial = [
-        {"detection": det, "offside": bool(en_offside)}
-        for det, en_offside in resultado.get("atacantes_resultado", [])
+        {
+            "detection": det,
+            "offside": bool(en_offside),
+            "adelantado_al_defensor": bool(ad),
+            "adelantado_a_pelota": bool(ap),
+        }
+        for det, en_offside, ad, ap in resultado.get("atacantes_resultado", [])
     ]
 
     resultado_serial = {
         "penultimo_defensor": resultado.get("penultimo_defensor"),
+        "pelota": resultado.get("pelota"),
         "linea_foot": list(resultado["linea_foot"]) if resultado.get("linea_foot") else None,
         "linea_pelota_foot": list(resultado["linea_pelota_foot"]) if resultado.get("linea_pelota_foot") else None,
         "atacantes_resultado": atacantes_serial,

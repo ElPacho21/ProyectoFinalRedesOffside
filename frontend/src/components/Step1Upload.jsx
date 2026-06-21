@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback } from 'react'
+import { useRef, useState, useCallback, useEffect } from 'react'
 import {
   IconCloudUpload, IconMovie, IconX, IconSearch,
   IconChevronLeft, IconChevronRight, IconPhoto, IconLoader2,
@@ -84,6 +84,21 @@ export default function Step1Upload({ loading, onDetect, onExtractFrame }) {
 
   const removeFile = () => { setFile(null); setPreview(null); setIsVideo(false) }
 
+  useEffect(() => {
+    const onPaste = (e) => {
+      const items = e.clipboardData?.items
+      if (!items) return
+      for (const item of items) {
+        if (item.kind === 'file') {
+          const f = item.getAsFile()
+          if (f) { handleFile(f); break }
+        }
+      }
+    }
+    document.addEventListener('paste', onPaste)
+    return () => document.removeEventListener('paste', onPaste)
+  }, [handleFile])
+
   const progressPct = totalFrames > 1 ? (frameNumber / (totalFrames - 1)) * 100 : 0
   const trackBg     = (pct) => `linear-gradient(to right, #22c55e ${pct}%, #1a2540 ${pct}%)`
 
@@ -127,6 +142,7 @@ export default function Step1Upload({ loading, onDetect, onExtractFrame }) {
             <p className="text-tx-muted text-sm mt-2">
               Imágenes: JPG, PNG · Videos: MP4, AVI, MOV, MKV
             </p>
+            <p className="text-tx-muted text-xs mt-1 opacity-50">También podés pegar (Ctrl+V)</p>
           </div>
         </div>
       ) : (

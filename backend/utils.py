@@ -1,4 +1,5 @@
 """Core offside detection utilities. Adapted from prod/utils.py for FastAPI backend."""
+import os
 import sys
 from pathlib import Path
 import cv2
@@ -33,6 +34,17 @@ CLASES = {
     4: "Referee",
     5: "TEAM 1",
     6: "TEAM 2",
+}
+
+# Per-class confidence thresholds (configurable via env)
+CONF_POR_CLASE = {
+    0: float(os.getenv("CONF_BALL",       "0.15")),  # Ball — small, hard to detect
+    1: float(os.getenv("CONF_CORNER",     "0.25")),  # Corner flag
+    2: float(os.getenv("CONF_GOALKEEPER", "0.25")),  # GoalKeeper
+    3: float(os.getenv("CONF_GOAL_NET",   "0.30")),  # Goal_Net
+    4: float(os.getenv("CONF_REFEREE",    "0.25")),  # Referee
+    5: float(os.getenv("CONF_TEAM",       "0.30")),  # TEAM 1
+    6: float(os.getenv("CONF_TEAM",       "0.30")),  # TEAM 2
 }
 
 _COLORES_BGR = {
@@ -93,11 +105,13 @@ def reasignar_equipos_por_color(detecciones, imagen_pil):
     return resultado
 
 
-def detectar_objetos(modelo, imagen_pil, conf=0.25, iou=0.7, agnostic_nms=True, clustering=True):
+def detectar_objetos(modelo, imagen_pil, conf=None, iou=0.7, agnostic_nms=True, clustering=True):
+    # Run at the lowest per-class threshold so nothing is missed before filtering
+    min_conf = min(CONF_POR_CLASE.values())
     img_np = np.array(imagen_pil.convert("RGB"))
     resultados = modelo.predict(
         source=img_np,
-        conf=conf,
+        conf=min_conf,
         iou=iou,
         agnostic_nms=agnostic_nms,
         verbose=False,
@@ -109,6 +123,9 @@ def detectar_objetos(modelo, imagen_pil, conf=0.25, iou=0.7, agnostic_nms=True, 
         for i in range(len(boxes)):
             cls_id = int(boxes.cls[i].item())
             conf_i = float(boxes.conf[i].item())
+            umbral = CONF_POR_CLASE.get(cls_id, min_conf)
+            if conf_i < umbral:
+                continue
             x1, y1, x2, y2 = boxes.xyxy[i].tolist()
             detecciones.append({
                 "class_id": cls_id,
@@ -237,13 +254,14 @@ def calcular_offside(
         en_offside = adelantado_al_defensor and adelantado_a_pelota
         if adelantado_al_defensor and not adelantado_a_pelota:
             salvados_por_pelota += 1
-        atacantes_resultado.append((atk, en_offside))
+        atacantes_resultado.append((atk, en_offside, adelantado_al_defensor, adelantado_a_pelota))
 
-    hay_offside = any(os for _, os in atacantes_resultado)
+    hay_offside = any(os for _, os, *_ in atacantes_resultado)
     linea_pelota_foot = pelota_foot if salvados_por_pelota > 0 else None
 
     return {
         "penultimo_defensor": penultimo,
+        "pelota": pelota,
         "linea_foot": penultimo_foot,
         "linea_pelota_foot": linea_pelota_foot,
         "atacantes_resultado": atacantes_resultado,
@@ -282,7 +300,7 @@ def dibujar_resultado(imagen_pil, detecciones, vp, resultado_offside):
     equipo_atk_id = resultado_offside.get("equipo_atacante_id") if resultado_offside else None
     atk_offside_map = {}
     if resultado_offside:
-        for det, en_offside in resultado_offside.get("atacantes_resultado", []):
+        for det, en_offside, *_ in resultado_offside.get("atacantes_resultado", []):
             atk_offside_map[(round(det["x1"]), round(det["y1"]))] = en_offside
 
     _class_counters = {}
@@ -335,7 +353,7 @@ def dibujar_resultado(imagen_pil, detecciones, vp, resultado_offside):
 
     if resultado_offside and vp:
         punto_ref = resultado_offside.get("punto_referencia", "medio")
-        for det, en_offside in resultado_offside.get("atacantes_resultado", []):
+        for det, en_offside, *_ in resultado_offside.get("atacantes_resultado", []):
             if en_offside:
                 fx, fy = pie_jugador(det, modo=punto_ref)
                 pts = _puntos_en_borde(fx, fy, vp[0], vp[1], w, h)
