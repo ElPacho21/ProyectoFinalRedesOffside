@@ -109,3 +109,17 @@ export ROBOFLOW_API_KEY="tu_api_key"   # Windows: set ROBOFLOW_API_KEY=tu_api_ke
 python data/download_dataset.py
 jupyter notebook dev/01_dataset_preparation.ipynb
 ```
+
+cd backend
+
+# Crear el entorno virtual
+python -m venv .venv
+
+# Activarlo
+.\.venv\Scripts\Activate.ps1
+
+# Instalar dependencias
+pip install -r requirements.txt
+
+# Levantar el servidor
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
