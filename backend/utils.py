@@ -334,7 +334,7 @@ def dibujar_resultado(imagen_pil, detecciones, vp, resultado_offside):
             pt1 = (int(round(pts[0][0])), int(round(pts[0][1])))
             pt2 = (int(round(pts[1][0])), int(round(pts[1][1])))
             cv2.line(img, pt1, pt2, (0, 140, 255), 2, cv2.LINE_AA)
-            cv2.putText(img, "Linea offside",
+            cv2.putText(img, "Línea offside",
                         (min(pt1[0], pt2[0]) + 5, max(min(pt1[1], pt2[1]) - 6, 12)),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 140, 255), 1, cv2.LINE_AA)
         cv2.circle(img, (int(fx), int(fy)), 8, (0, 140, 255), -1, cv2.LINE_AA)
@@ -346,7 +346,7 @@ def dibujar_resultado(imagen_pil, detecciones, vp, resultado_offside):
             pt1 = (int(round(pts[0][0])), int(round(pts[0][1])))
             pt2 = (int(round(pts[1][0])), int(round(pts[1][1])))
             cv2.line(img, pt1, pt2, (255, 200, 0), 2, cv2.LINE_AA)
-            cv2.putText(img, "Linea pelota",
+            cv2.putText(img, "Línea pelota",
                         (min(pt1[0], pt2[0]) + 5, max(min(pt1[1], pt2[1]) - 6, 12)),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 200, 0), 1, cv2.LINE_AA)
         cv2.circle(img, (int(bx), int(by)), 6, (255, 200, 0), -1, cv2.LINE_AA)
@@ -368,7 +368,7 @@ def dibujar_resultado(imagen_pil, detecciones, vp, resultado_offside):
         if 0 <= vx < w and 0 <= vy < h:
             cv2.circle(img, (vx, vy), 10, (0, 0, 180), -1, cv2.LINE_AA)
             cv2.circle(img, (vx, vy), 12, (255, 255, 255), 2, cv2.LINE_AA)
-            cv2.putText(img, f"VP ({vp[0]:.0f},{vp[1]:.0f})",
+            cv2.putText(img, f"Punto de fuga ({vp[0]:.0f},{vp[1]:.0f})",
                         (vx + 14, max(vy - 14, 12)),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
 

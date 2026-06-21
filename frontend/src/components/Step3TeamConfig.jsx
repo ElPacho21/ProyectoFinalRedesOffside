@@ -120,7 +120,7 @@ function VPSection({ detectedImageB64, imageSize, vpAuto, onVPChange }) {
           <p className="font-600 text-tx-primary">Punto de Fuga</p>
           <p className="text-xs text-tx-muted mt-0.5">
             {activeVP
-              ? (manualMode ? 'VP calculado manualmente' : 'Auto-detectado desde Hough Lines')
+              ? (manualMode ? 'Punto de fuga calculado manualmente' : 'Auto-detectado desde líneas del campo')
               : 'Seleccioná 4 puntos: 2 en la línea A, 2 en la línea B'}
           </p>
         </div>
@@ -136,7 +136,7 @@ function VPSection({ detectedImageB64, imageSize, vpAuto, onVPChange }) {
           <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full shrink-0"
             style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)' }}>
             <IconAlertTriangle size={13} stroke={2} className="text-warn" />
-            <span className="text-[11px] font-600 text-warn">Sin VP</span>
+            <span className="text-[11px] font-600 text-warn">Sin punto de fuga</span>
           </div>
         )}
       </div>

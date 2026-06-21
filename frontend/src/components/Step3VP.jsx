@@ -99,7 +99,7 @@ export default function Step3VP({
                 ? 'Calculado manualmente desde 4 puntos'
                 : hasCustomSel
                   ? `Auto-detectado · ${activeLineCount} líneas seleccionadas`
-                  : 'Auto-detectado con RANSAC · clic en líneas para ajustar'
+                  : 'Auto-detectado · clic en líneas para ajustar'
               : manualMode
                 ? 'Hacé clic en 2 puntos sobre la línea A y 2 sobre la línea B'
                 : 'No se detectó automáticamente — seleccioná manualmente'}
@@ -117,7 +117,7 @@ export default function Step3VP({
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full shrink-0"
             style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)' }}>
             <IconAlertTriangle size={14} stroke={2} className="text-warn" />
-            <span className="text-xs font-600 text-warn">Sin VP</span>
+            <span className="text-xs font-600 text-warn">Sin punto de fuga</span>
           </div>
         )}
       </div>
@@ -296,7 +296,7 @@ export default function Step3VP({
         {tooFewLines && (
           <div className="flex-1 flex items-center justify-center px-4 py-3 rounded-2xl text-sm font-600"
             style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', color: '#f59e0b' }}>
-            Mínimo {MIN_LINES} líneas para calcular VP — activá más líneas o usá 4 puntos manual
+            Mínimo {MIN_LINES} líneas para calcular el punto de fuga — activá más líneas o usá 4 puntos manual
           </div>
         )}
         {!tooFewLines && (
