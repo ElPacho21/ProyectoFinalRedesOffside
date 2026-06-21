@@ -38,14 +38,17 @@ CLASES = {
 
 # Per-class confidence thresholds (configurable via env)
 CONF_POR_CLASE = {
-    0: float(os.getenv("CONF_BALL",       "0.15")),  # Ball — small, hard to detect
+    0: float(os.getenv("CONF_BALL",       "0.05")),  # Ball — ultra-low, keep best only
     1: float(os.getenv("CONF_CORNER",     "0.25")),  # Corner flag
     2: float(os.getenv("CONF_GOALKEEPER", "0.25")),  # GoalKeeper
-    3: float(os.getenv("CONF_GOAL_NET",   "0.30")),  # Goal_Net
+    3: float(os.getenv("CONF_GOAL_NET",   "0.05")),  # Goal_Net — ultra-low, keep best only
     4: float(os.getenv("CONF_REFEREE",    "0.25")),  # Referee
     5: float(os.getenv("CONF_TEAM",       "0.30")),  # TEAM 1
     6: float(os.getenv("CONF_TEAM",       "0.30")),  # TEAM 2
 }
+
+# Classes where only the single highest-confidence detection is kept
+_KEEP_BEST_ONLY = {0, 3}  # Ball, Goal_Net
 
 _COLORES_BGR = {
     0: (255, 255, 255),
@@ -133,6 +136,19 @@ def detectar_objetos(modelo, imagen_pil, conf=None, iou=0.7, agnostic_nms=True, 
                 "conf": conf_i,
                 "x1": x1, "y1": y1, "x2": x2, "y2": y2,
             })
+
+    # For certain classes keep only the single highest-confidence detection
+    filtered = []
+    best_per_class: dict = {}
+    for d in detecciones:
+        cid = d["class_id"]
+        if cid in _KEEP_BEST_ONLY:
+            if cid not in best_per_class or d["conf"] > best_per_class[cid]["conf"]:
+                best_per_class[cid] = d
+        else:
+            filtered.append(d)
+    filtered.extend(best_per_class.values())
+    detecciones = filtered
 
     if clustering:
         detecciones = reasignar_equipos_por_color(detecciones, imagen_pil)
