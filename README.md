@@ -12,19 +12,15 @@ El objetivo es entrenar un modelo de detección de objetos (YOLOv26m) sobre imá
 - Bruno Lucero
 - Juan Pablo Costa
 
-## Aplicación desplegada
-
-**[https://proyectofinalredesoffside.streamlit.app/](https://proyectofinalredesoffside.streamlit.app/)**
-
 ## Stack tecnológico
 
 | Componente | Tecnología |
 |---|---|
 | Lenguaje | Python >= 3.9 |
 | Deep Learning | PyTorch + YOLOv26 (Ultralytics) |
-| Augmentations | Albumentations |
+| Backend | FastAPI + Uvicorn |
+| Frontend | React + Vite |
 | Dataset | Roboflow Universe |
-| App Web | Streamlit |
 
 ## Dataset
 
@@ -36,58 +32,80 @@ El objetivo es entrenar un modelo de detección de objetos (YOLOv26m) sobre imá
 
 ## Instrucciones para ejecutar localmente
 
-### App web (Semana 4)
+### Requisitos previos
+
+- Python >= 3.9
+- Node.js >= 18
+- Modelo entrenado en `dev/modelo.pt`
+
+### Backend (FastAPI)
+
+> Crear un archivo `.env` en `backend/` con el contenido de `.env.example`. Ajustar `MODEL_PATH` según la ubicación del modelo.
 
 ```bash
-git clone <url-del-repo>
-cd ProyectoFinalRedesOffside
-pip install -r prod/requirements.txt
-streamlit run prod/app.py
+cd backend
+pip install -r requirements.txt
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### Notebooks de entrenamiento (Semanas 1-3)
+El backend queda disponible en `http://localhost:8000`.
+
+### Frontend (React + Vite)
+
+Crear un archivo `.env` en `frontend/` copiando el contenido de `.env.example`. Ajustar `VITE_API_URL` si el backend corre en otro puerto o host.
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+La app queda disponible en `http://localhost:5173`.
+
+### Variables de entorno (backend)
+
+| Variable | Descripción | Default |
+|---|---|---|
+| `MODEL_PATH` | Ruta al archivo `.pt` del modelo | `../dev/modelo.pt` |
+| `CORS_ORIGINS` | Orígenes permitidos | `http://localhost:5173` |
+| `HOST` | Host del servidor | `0.0.0.0` |
+| `PORT` | Puerto del servidor | `8000` |
+| `CONF_BALL` | Umbral de confianza para la pelota | `0.05` |
+| `CONF_GOAL_NET` | Umbral de confianza para la red del arco | `0.05` |
+| `CONF_TEAM` | Umbral de confianza para jugadores | `0.30` |
+
+## Estructura del repositorio
+
+```
+ProyectoFinalRedesOffside/
+├── README.md
+├── backend/
+│   ├── main.py               ← API FastAPI (endpoints detect, calculate-offside, etc.)
+│   ├── utils.py              ← Inferencia YOLO + lógica de offside
+│   ├── hough.py              ← Detección de punto de fuga (LSD + RANSAC)
+│   ├── requirements.txt
+│   └── .env.example
+├── frontend/
+│   ├── src/
+│   │   ├── App.jsx           ← Flujo principal (4 pasos)
+│   │   ├── components/       ← Step1Upload, Step2TeamConfig, Step3VP, Step4Results
+│   │   └── api/client.js
+│   ├── package.json
+│   └── vite.config.js
+├── data/
+│   ├── download_dataset.py
+│   └── vp_annotations.csv
+└── dev/
+    ├── 01_dataset_preparation.ipynb
+    ├── 02_model_training.ipynb
+    └── modelo.pt             ← Modelo final
+```
+
+## Notebooks de entrenamiento
 
 ```bash
 pip install -r requirements.txt
 export ROBOFLOW_API_KEY="tu_api_key"   # Windows: set ROBOFLOW_API_KEY=tu_api_key
 python data/download_dataset.py
 jupyter notebook dev/01_dataset_preparation.ipynb
-```
-
-### Herramienta de anotación manual (VP + ground truth de offside)
-
-```bash
-# Cada integrante corre con su ID (0-4):
-python dev/annotate_vp.py --integrante 0
-
-# Con comparación contra el algoritmo:
-python dev/annotate_vp.py --integrante 0 --comparar-algoritmo
-```
-
-## Estructura del repositorio
-
-```
-ProyectoFinalRedesOffside/
-├── .gitignore
-├── README.md
-├── requirements.txt            ← Dependencias para notebooks de entrenamiento
-├── data/
-│   ├── README.md
-│   ├── download_dataset.py
-│   ├── vp_annotations.csv      ← Anotaciones manuales de VP + ground truth offside
-│   ├── train.csv
-│   ├── val.csv
-│   └── test.csv
-├── dev/
-│   ├── 01_dataset_preparation.ipynb
-│   ├── 02_model_training.ipynb
-│   ├── HoughLines.py           ← Detección de punto de fuga (Hough + manual)
-│   ├── annotate_vp.py          ← Herramienta de anotación manual VP + offside GT
-│   ├── modelo.pt               ← Modelo final (cargado por la app en producción)
-│   └── YOLOv26m Manual Weighted/
-│       └── exp5_yolo26m_manual_weighted.pt  ← Pesos del experimento final
-└── prod/
-    ├── app.py                  ← Interfaz Streamlit
-    ├── utils.py                ← Lógica: modelo, inferencia, geometría de offside
-    └── requirements.txt        ← Dependencias para la app web (versiones fijadas)
 ```
