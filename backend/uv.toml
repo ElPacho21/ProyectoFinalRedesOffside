@@ -1,1 +1,2 @@
 index-strategy = "unsafe-best-match"
+environments = ["sys_platform == 'linux'"]
