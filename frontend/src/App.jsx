@@ -22,6 +22,7 @@ const INITIAL_STATE = {
   imageSize: null,
   attackingTeam: null,
   goalOnRight: null,
+  goalOnRightAutoDetected: false,
   referencePoint: 'medio',
   resultImageB64: null,
   resultado: null,
@@ -40,6 +41,12 @@ export default function App() {
       form.append('image', imageFile, 'image.jpg')
       form.append('iou', IOU)
       const { data } = await api.post('/api/detect', form)
+      // Auto-detect goal side from Goal_Net position (class_id=3)
+      const goalNet = data.detections.find(d => d.class_id === 3)
+      const autoGoalOnRight = goalNet
+        ? ((goalNet.x1 + goalNet.x2) / 2) > (data.image_size.width / 2)
+        : null
+
       set({
         originalImageB64: data.image_b64,
         detectedImageB64: data.detected_image_b64,
@@ -50,6 +57,8 @@ export default function App() {
         classCount: data.class_counts,
         teamSamples: data.team_samples,
         imageSize: data.image_size,
+        goalOnRight: autoGoalOnRight,
+        goalOnRightAutoDetected: goalNet != null,
         step: 2,
         loading: false,
       })
@@ -136,6 +145,7 @@ export default function App() {
               teamSamples={s.teamSamples}
               attackingTeam={s.attackingTeam}
               goalOnRight={s.goalOnRight}
+              goalOnRightAutoDetected={s.goalOnRightAutoDetected}
               referencePoint={s.referencePoint}
               onChange={(patch) => set(patch)}
               onNext={() => set({ step: 3 })}

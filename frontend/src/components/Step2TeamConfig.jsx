@@ -1,9 +1,8 @@
-import { IconArrowLeft, IconArrowRight, IconArrowsHorizontal, IconUser, IconCheck, IconTarget } from '@tabler/icons-react'
+import { IconArrowLeft, IconArrowRight, IconUser, IconCheck, IconTarget } from '@tabler/icons-react'
 
 const DIRECTIONS = [
-  { value: false, Icon: IconArrowLeft,        label: 'Izquierda' },
-  { value: null,  Icon: IconArrowsHorizontal, label: 'Auto' },
-  { value: true,  Icon: IconArrowRight,        label: 'Derecha' },
+  { value: false, Icon: IconArrowLeft,  label: 'Izquierda' },
+  { value: true,  Icon: IconArrowRight, label: 'Derecha'   },
 ]
 
 const REF_POINTS = [
@@ -65,10 +64,10 @@ function TeamCard({ label, sampleB64, selected, onClick }) {
 }
 
 export default function Step2TeamConfig({
-  teamSamples, attackingTeam, goalOnRight, referencePoint,
-  onChange, onNext, onBack,
+  teamSamples, attackingTeam, goalOnRight, goalOnRightAutoDetected,
+  referencePoint, onChange, onNext, onBack,
 }) {
-  const canProceed = attackingTeam !== null && goalOnRight !== undefined
+  const canProceed = attackingTeam !== null && goalOnRight !== null && goalOnRight !== undefined
 
   return (
     <div className="max-w-xl mx-auto space-y-4">
@@ -88,7 +87,7 @@ export default function Step2TeamConfig({
       {/* ── Direction ─────────────────────────────────────────── */}
       <div className="glass rounded-2xl p-5">
         <p className="font-600 text-tx-primary mb-1">Dirección de ataque</p>
-        <p className="text-xs text-tx-muted mb-4">Hacia qué lado del campo ataca el equipo</p>
+        <p className="text-xs text-tx-muted mb-4">Hacia qué lado del campo ataca el equipo seleccionado</p>
         <div className="flex gap-2">
           {DIRECTIONS.map(({ value, Icon, label }) => {
             const active = goalOnRight === value
@@ -110,6 +109,17 @@ export default function Step2TeamConfig({
             )
           })}
         </div>
+        {goalOnRightAutoDetected && goalOnRight !== null && (
+          <p className="text-[11px] text-tx-muted mt-3 flex items-center gap-1.5">
+            <span style={{ color: '#22c55e' }}>●</span>
+            Auto-detectado desde la posición de la red del arco — podés cambiarlo si es incorrecto
+          </p>
+        )}
+        {!goalOnRightAutoDetected && (
+          <p className="text-[11px] text-tx-muted mt-3">
+            No se detectó la red del arco — seleccioná manualmente hacia qué lado ataca el equipo
+          </p>
+        )}
       </div>
 
       {/* ── Reference point ───────────────────────────────────── */}

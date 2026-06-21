@@ -41,9 +41,10 @@ def _ransac_vp(segs, angulos, w, h, n_iter=500):
     best_inliers  = []
 
     indices = list(range(len(segs)))
+    rng = random.Random(42)  # fixed seed → deterministic results
 
     for _ in range(n_iter):
-        i, j = random.sample(indices, 2)
+        i, j = rng.sample(indices, 2)
         vp = _interseccion(segs[i], segs[j])
         if vp is None:
             continue
@@ -138,10 +139,9 @@ def detectar_punto_de_fuga(imagen_bgr):
             # Filter near-horizontal in both directions (0° and 180°)
             if abs_ang < 10 or abs_ang > 170:
                 continue
-            # Filter lines in top 8% of image (scoreboard/advertising)
-            if min(y1, y2) > h * 0.08:
-                pass  # below top zone, keep going
-            else:
+            # Filter advertising/scoreboard lines: their LOWER endpoint is still near
+            # the top. A real field line extends well into the field (max y > 20%).
+            if max(y1, y2) < h * 0.20:
                 continue
             n_ang += 1
             green_score = _seg_on_field(x1, y1, x2, y2)
