@@ -15,11 +15,14 @@ dependencies = [
     "torchvision==0.27.0+cpu",
 ]
 
+[tool.uv]
+environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]
+
 [[tool.uv.index]]
-url = "https://download.pytorch.org/whl/cpu"
 name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
 explicit = true
 
-[tool.uv]
-index-strategy = "unsafe-best-match"
-environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+torchvision = { index = "pytorch-cpu" }
