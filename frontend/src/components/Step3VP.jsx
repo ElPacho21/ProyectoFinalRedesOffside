@@ -2,6 +2,7 @@ import { useRef, useState, useEffect } from 'react'
 import { IconCircleCheck, IconAlertTriangle, IconRefresh, IconCrosshair, IconLoader2 } from '@tabler/icons-react'
 import api from '../api/client'
 
+
 function calcIntersection(p1, p2, p3, p4) {
   const dx1 = p2.ox - p1.ox, dy1 = p2.oy - p1.oy
   const dx2 = p4.ox - p3.ox, dy2 = p4.oy - p3.oy
@@ -133,7 +134,7 @@ export default function Step3VP({
                 </span>
               : !manualMode && vpLines
                 ? <span className="text-tx-muted">
-                    <span style={{ color: '#22c55e' }}>{activeLineCount}</span>{' / '}{vpLines.a.length + vpLines.b.length} líneas detectadas{' · '}
+                    <span style={{ color: '#e879f9' }}>{activeLineCount}</span>{' / '}{vpLines.a.length + vpLines.b.length} líneas detectadas{' · '}
                     <span style={{ color: '#f43f5e' }}>clic para desactivar</span>
                   </span>
                 : 'Imagen detectada'
@@ -197,7 +198,7 @@ export default function Step3VP({
               src={`data:image/jpeg;base64,${detectedImageB64}`}
               alt="Campo"
               className="block"
-              style={{ display: 'block', width: '100%', height: 'auto' }}
+              style={{ display: 'block', width: '100%', height: 'auto', opacity: 0.5 }}
               onLoad={() => setImgReady(true)}
             />
           )}
@@ -215,17 +216,16 @@ export default function Step3VP({
                     return (
                       <g key={`a${i}`} style={{ pointerEvents: 'stroke', cursor: 'pointer' }}
                         onClick={(e) => { e.stopPropagation(); toggleLine('a', i) }}>
-                        {/* Dark outline for contrast */}
                         <line x1={x1p} y1={y1p} x2={x2p} y2={y2p}
                           stroke="#000" strokeWidth="6" opacity={active ? 0.5 : 0.2}
                           strokeLinecap="round" />
                         <line x1={x1p} y1={y1p} x2={x2p} y2={y2p}
-                          stroke={active ? '#22c55e' : '#6b7280'}
+                          stroke={active ? '#facc15' : '#9ca3af'}
                           strokeWidth={active ? 4 : 2}
                           strokeDasharray={active ? 'none' : '8 5'}
                           strokeLinecap="round"
                           opacity={active ? 1 : 0.5}
-                          style={{ filter: active ? 'drop-shadow(0 0 5px #22c55e) drop-shadow(0 0 10px #22c55e)' : 'none' }} />
+                          style={{ filter: 'none' }} />
                       </g>
                     )
                   })}
@@ -242,12 +242,12 @@ export default function Step3VP({
                           stroke="#000" strokeWidth="6" opacity={active ? 0.5 : 0.2}
                           strokeLinecap="round" />
                         <line x1={x1p} y1={y1p} x2={x2p} y2={y2p}
-                          stroke={active ? '#22c55e' : '#6b7280'}
+                          stroke={active ? '#facc15' : '#9ca3af'}
                           strokeWidth={active ? 4 : 2}
                           strokeDasharray={active ? 'none' : '8 5'}
                           strokeLinecap="round"
                           opacity={active ? 1 : 0.5}
-                          style={{ filter: active ? 'drop-shadow(0 0 5px #22c55e) drop-shadow(0 0 10px #22c55e)' : 'none' }} />
+                          style={{ filter: 'none' }} />
                       </g>
                     )
                   })}
