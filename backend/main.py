@@ -41,11 +41,20 @@ app.add_middleware(
 _model = None
 
 
+def get_model():
+    """Carga perezosa del modelo ONNX. En local con uvicorn se precarga en el
+    evento startup; en serverless (donde los eventos lifespan no están
+    garantizados) se carga en el primer request que lo necesite."""
+    global _model
+    if _model is None:
+        path = os.getenv("MODEL_PATH", str(MODEL_PATH))
+        _model = cargar_modelo(path)
+    return _model
+
+
 @app.on_event("startup")
 async def startup_event():
-    global _model
-    path = os.getenv("MODEL_PATH", str(MODEL_PATH))
-    _model = cargar_modelo(path)
+    get_model()
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -113,16 +122,13 @@ async def detect(
     image: UploadFile = File(...),
     iou: float = Form(0.7),
 ):
-    if _model is None:
-        raise HTTPException(status_code=503, detail="Modelo no cargado aún.")
-
     data = await image.read()
     try:
         img = Image.open(io.BytesIO(data)).convert("RGB")
     except Exception:
         raise HTTPException(status_code=400, detail="Imagen inválida.")
 
-    detections = detectar_objetos(_model, img, iou=iou)
+    detections = detectar_objetos(get_model(), img, iou=iou)
     detected_img = dibujar_resultado(img, detections, None, None)
 
     img_bgr = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
@@ -202,9 +208,7 @@ class OffsideRequest(BaseModel):
 
 @app.post("/api/calculate-offside")
 async def calculate_offside_endpoint(req: OffsideRequest):
-    if _model is None:
-        raise HTTPException(status_code=503, detail="Modelo no cargado aún.")
-
+    # No usa el modelo: calcula offside sobre las detecciones que envía el cliente.
     try:
         img = _b64_to_pil(req.image_b64)
     except Exception:
