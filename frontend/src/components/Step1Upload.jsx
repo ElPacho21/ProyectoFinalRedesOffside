@@ -3,6 +3,7 @@ import {
   IconCloudUpload, IconMovie, IconX, IconSearch,
   IconChevronLeft, IconChevronRight, IconPhoto, IconLoader2,
 } from '@tabler/icons-react'
+
 import { b64toBlob } from '../api/client'
 
 const IMAGE_EXT = ['image/jpeg', 'image/png', 'image/webp']
@@ -148,7 +149,7 @@ export default function Step1Upload({ loading, onDetect, onExtractFrame }) {
       ) : (
         /* ── Media card ─────────────────────────────────────────── */
         <div className="rounded-2xl overflow-hidden border border-border-subtle">
-          <div className="relative bg-black">
+          <div className="relative bg-black" style={{ minHeight: '50vh' }}>
             <img
               src={preview}
               alt="preview"
@@ -156,9 +157,11 @@ export default function Step1Upload({ loading, onDetect, onExtractFrame }) {
               style={{ maxHeight: '72vh' }}
             />
 
-            {frameLoading && (
-              <div className="absolute inset-0 flex items-center justify-center bg-black/60">
-                <IconLoader2 size={40} stroke={2} className="text-accent animate-spin" />
+            {(frameLoading || loading) && (
+              <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3"
+                style={{ background: 'rgba(6,9,16,0.72)', backdropFilter: 'blur(3px)' }}>
+                <IconLoader2 size={44} stroke={1.5} className="text-accent animate-spin" />
+                {loading && <span className="text-sm font-600 text-tx-primary">Analizando imagen…</span>}
               </div>
             )}
 
@@ -244,17 +247,8 @@ export default function Step1Upload({ loading, onDetect, onExtractFrame }) {
         disabled={!file || loading || frameLoading}
         className="btn-primary w-full py-4 text-[15px] flex items-center justify-center gap-2.5"
       >
-        {loading ? (
-          <>
-            <IconLoader2 size={16} stroke={2} className="animate-spin" />
-            Analizando imagen…
-          </>
-        ) : (
-          <>
-            <IconSearch size={16} stroke={2.5} />
-            Analizar imagen
-          </>
-        )}
+        <IconSearch size={16} stroke={2.5} />
+        Analizar imagen
       </button>
     </div>
   )
