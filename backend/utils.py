@@ -66,46 +66,141 @@ def cargar_modelo(ruta=None):
     return YOLO(str(ruta or MODEL_PATH))
 
 
+# --- Tuning for color-based team clustering (env-overridable) ---
+# Peso del canal L (luminosidad) en la distancia de color. <1 prioriza
+# tono/croma (a,b de LAB) sobre brillo → más robusto a sombras (mejora #5).
+_L_WEIGHT = float(os.getenv("COLOR_L_WEIGHT", "0.5"))
+# Distancia máxima (espacio LAB ponderado) para considerar que un "jugador"
+# coincide con el color del arquero/árbitro y excluirlo (mejora #3).
+_ANCLA_DIST = float(os.getenv("COLOR_ANCLA_DIST", "28.0"))
+# Distancia máxima de un jugador a su centroide de equipo; si la supera se
+# considera intruso y se descarta del equipo (mejora #1).
+_OUTLIER_DIST = float(os.getenv("COLOR_OUTLIER_DIST", "55.0"))
+# Distancia LAB para considerar que un píxel es césped (vs el ref de césped
+# muestreado alrededor del jugador). Camiseta verde de otro tono sobrevive.
+_GRASS_DIST = float(os.getenv("COLOR_GRASS_DIST", "22.0"))
+
+
+def _torso_crop(d, img_np):
+    """Recorta la franja central del torso (evita césped/piernas/cabeza)."""
+    h_img, w_img = img_np.shape[:2]
+    x1 = max(0, int(d["x1"])); y1 = max(0, int(d["y1"]))
+    x2 = min(w_img, int(d["x2"])); y2 = min(h_img, int(d["y2"]))
+    bbox_h = max(1, y2 - y1); bw = max(1, x2 - x1)
+    ty1 = y1 + int(bbox_h * 0.20); ty2 = y1 + int(bbox_h * 0.60)
+    tx1 = x1 + int(bw * 0.25); tx2 = x1 + int(bw * 0.75)
+    if ty2 > ty1 and tx2 > tx1:
+        return img_np[ty1:ty2, tx1:tx2]
+    return img_np[y1:y2, x1:x2]
+
+
+def _grass_lab(d, img_np):
+    """Estima el color del césped muestreando franjas a izq/der/abajo del
+    bbox del jugador. Devuelve mediana LAB o None si no hay margen.
+    Permite distinguir césped de una camiseta verde de otro tono."""
+    h_img, w_img = img_np.shape[:2]
+    x1 = max(0, int(d["x1"])); y1 = max(0, int(d["y1"]))
+    x2 = min(w_img, int(d["x2"])); y2 = min(h_img, int(d["y2"]))
+    bw = max(1, x2 - x1); bh = max(1, y2 - y1)
+    m = max(2, int(bw * 0.30))  # ancho de la franja lateral
+    yc1 = y1 + int(bh * 0.40); yc2 = y2  # mitad inferior (suele ser césped)
+    muestras = []
+    izq = img_np[yc1:yc2, max(0, x1 - m):x1]
+    der = img_np[yc1:yc2, x2:min(w_img, x2 + m)]
+    aba = img_np[y2:min(h_img, y2 + m), x1:x2]
+    for patch in (izq, der, aba):
+        if patch.size:
+            muestras.append(patch.reshape(-1, 3))
+    if not muestras:
+        return None
+    rgb = np.concatenate(muestras, axis=0).reshape(1, -1, 3).astype(np.uint8)
+    lab = cv2.cvtColor(rgb, cv2.COLOR_RGB2LAB).reshape(-1, 3)
+    return np.median(lab, axis=0).astype(np.float32)
+
+
+def _color_camiseta(crop_rgb, grass_lab=None):
+    """Color dominante de la camiseta: mediana LAB sobre píxeles que NO
+    coinciden con el césped muestreado localmente (mejora #4). Si no hay ref
+    de césped, usa todo el crop. None si crop vacío."""
+    if crop_rgb is None or crop_rgb.size == 0:
+        return None
+    lab = cv2.cvtColor(crop_rgb, cv2.COLOR_RGB2LAB).reshape(-1, 3).astype(np.float32)
+    if grass_lab is not None:
+        dist = np.linalg.norm(lab - grass_lab.astype(np.float32), axis=1)
+        valido = dist > _GRASS_DIST
+        # Si casi todo matchea césped (jugador chico/lejano), usar todo el crop.
+        if valido.sum() >= max(10, int(0.10 * valido.size)):
+            lab = lab[valido]
+    if lab.size == 0:
+        return None
+    return np.median(lab, axis=0).astype(np.float32)
+
+
+def _feat(col):
+    """Vector de color ponderado para distancias/kmeans (mejora #5)."""
+    return np.array([col[0] * _L_WEIGHT, col[1], col[2]], dtype=np.float32)
+
+
 def reasignar_equipos_por_color(detecciones, imagen_pil):
     img_np = np.array(imagen_pil.convert("RGB"))
-    h_img, w_img = img_np.shape[:2]
 
     jugadores_idx = [i for i, d in enumerate(detecciones) if d["class_id"] in (5, 6)]
     if len(jugadores_idx) < 2:
         return detecciones
 
-    colores = []
-    for i in jugadores_idx:
-        d = detecciones[i]
-        x1 = max(0, int(d["x1"]))
-        y1 = max(0, int(d["y1"]))
-        x2 = min(w_img, int(d["x2"]))
-        y2 = min(h_img, int(d["y2"]))
-        bbox_h = max(1, y2 - y1)
-        ty1 = y1 + int(bbox_h * 0.20)
-        ty2 = y1 + int(bbox_h * 0.60)
-        bw = max(1, x2 - x1)
-        tx1 = x1 + int(bw * 0.25)
-        tx2 = x1 + int(bw * 0.75)
-        crop = img_np[ty1:ty2, tx1:tx2] if ty2 > ty1 and tx2 > tx1 else img_np[y1:y2, x1:x2]
-        if crop.size == 0:
-            colores.append(np.zeros(3, dtype=np.float32))
-            continue
-        crop_lab = cv2.cvtColor(crop, cv2.COLOR_RGB2LAB)
-        colores.append(crop_lab.reshape(-1, 3).mean(axis=0).astype(np.float32))
+    resultado = [dict(d) for d in detecciones]
 
-    colores_arr = np.array(colores, dtype=np.float32)
+    # --- Mejora #3: anclas de color desde arquero/árbitro ya detectados ---
+    anclas = []  # (class_id, feat)
+    for d in detecciones:
+        if d["class_id"] in (2, 4):
+            col = _color_camiseta(_torso_crop(d, img_np), _grass_lab(d, img_np))
+            if col is not None:
+                anclas.append((d["class_id"], _feat(col)))
+
+    # Color de cada jugador
+    feats = {}  # idx -> feat
+    for idx in jugadores_idx:
+        d = detecciones[idx]
+        col = _color_camiseta(_torso_crop(d, img_np), _grass_lab(d, img_np))
+        feats[idx] = _feat(col) if col is not None else np.zeros(3, dtype=np.float32)
+
+    # --- Mejora #2: kmeans k=2 sobre TODOS los jugadores → 2 equipos ---
+    # k=2 fijo: nunca parte un equipo real en un 3er cluster espurio.
+    feat_arr = np.array([feats[i] for i in jugadores_idx], dtype=np.float32)
     criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 0.1)
-    _, labels, _ = cv2.kmeans(colores_arr, 2, None, criteria, 10, cv2.KMEANS_RANDOM_CENTERS)
+    _, labels, centros = cv2.kmeans(
+        feat_arr, 2, None, criteria, 10, cv2.KMEANS_PP_CENTERS
+    )
     labels = labels.flatten()
+    lbl_a_equipo = {0: 5, 1: 6}
 
-    resultado = list(detecciones)
     for orden, idx in enumerate(jugadores_idx):
-        d = dict(resultado[idx])
-        new_id = 5 if int(labels[orden]) == 0 else 6
-        d["class_id"] = new_id
-        d["class_name"] = CLASES[new_id]
-        resultado[idx] = d
+        lbl = int(labels[orden])
+        f = feat_arr[orden]
+        d_own = float(np.linalg.norm(f - centros[lbl]))
+
+        # --- Mejora #3: ¿más parecido a arquero/árbitro que a su propio equipo? ---
+        mejor_id, mejor_d = None, np.inf
+        for cid, af in anclas:
+            dist = float(np.linalg.norm(f - af))
+            if dist < mejor_d:
+                mejor_d, mejor_id = dist, cid
+        if mejor_id is not None and mejor_d < _ANCLA_DIST and mejor_d < d_own:
+            # Solo si el match al ancla es mejor que su propio equipo → no es jugador.
+            resultado[idx]["class_id"] = mejor_id
+            resultado[idx]["class_name"] = CLASES[mejor_id]
+            continue
+
+        # --- Mejora #1: rechazo de outlier por distancia al centroide del equipo ---
+        if d_own > _OUTLIER_DIST:
+            resultado[idx]["class_id"] = 4
+            resultado[idx]["class_name"] = CLASES[4]
+            continue
+
+        new_id = lbl_a_equipo[lbl]
+        resultado[idx]["class_id"] = new_id
+        resultado[idx]["class_name"] = CLASES[new_id]
 
     return resultado
 
