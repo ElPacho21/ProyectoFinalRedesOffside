@@ -51,11 +51,13 @@ CONF_POR_CLASE = {
 _KEEP_BEST_ONLY = {0, 3}  # Ball, Goal_Net
 
 _COLORES_BGR = {
-    0: (255, 255, 255),
-    2: (0, 215, 255),
-    4: (0, 165, 255),
-    5: (180, 105, 255),
-    6: (220, 220, 0),
+    0: (255, 255, 255),   # Ball — white
+    1: (0, 255, 200),     # Corner — cyan-green
+    2: (0, 215, 255),     # GoalKeeper — yellow
+    3: (0, 100, 255),     # Goal_Net — orange-red
+    4: (0, 165, 255),     # Referee — orange
+    5: (180, 105, 255),   # TEAM 1 — pink
+    6: (220, 220, 0),     # TEAM 2 — cyan
 }
 
 
