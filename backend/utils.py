@@ -65,7 +65,12 @@ class _OnnxModel:
 
 
 def cargar_modelo(ruta=None):
-    return _OnnxModel(str(ruta or MODEL_PATH))
+    ruta = Path(ruta) if ruta else MODEL_PATH
+    if not ruta.is_absolute():
+        # Una ruta relativa (p. ej. MODEL_PATH=modelo.onnx del .env) se ancla al
+        # directorio del backend, no al cwd → corre desde cualquier lado.
+        ruta = Path(__file__).resolve().parent / ruta
+    return _OnnxModel(str(ruta))
 
 
 def _letterbox(img, new_shape, color=(114, 114, 114)):
