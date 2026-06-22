@@ -2,7 +2,9 @@
 import io
 import os
 import base64
+import logging
 import tempfile
+import time
 from pathlib import Path
 from typing import List, Optional
 
@@ -10,12 +12,18 @@ import cv2
 import numpy as np
 import uvicorn
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
 from pydantic import BaseModel
 
 load_dotenv()
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
 
 from utils import (  # noqa: E402
     CLASES,
@@ -28,6 +36,19 @@ from utils import (  # noqa: E402
 from hough import detectar_punto_de_fuga  # noqa: E402
 
 app = FastAPI(title="Offside Detection API", version="1.0.0")
+
+logger = logging.getLogger("offside")
+
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start = time.perf_counter()
+    logger.info("→ %s %s", request.method, request.url.path)
+    response = await call_next(request)
+    elapsed_ms = (time.perf_counter() - start) * 1000
+    logger.info("← %s %s %d (%.1fms)", request.method, request.url.path, response.status_code, elapsed_ms)
+    return response
+
 
 _origins = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000").split(",")]
 app.add_middleware(
@@ -54,7 +75,9 @@ def get_model():
 
 @app.on_event("startup")
 async def startup_event():
+    logger.info("Cargando modelo ONNX...")
     get_model()
+    logger.info("Modelo cargado. API lista.")
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
