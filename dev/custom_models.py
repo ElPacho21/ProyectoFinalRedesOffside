@@ -61,7 +61,11 @@ class WeightedDetectionModel(DetectionModel):
 
         print("INIT CRITERION CUSTOM")
 
-        return WeightedE2ELoss(self)
+        orig_criterion = super().init_criterion()
+        if isinstance(orig_criterion, E2ELoss):
+            return WeightedE2ELoss(self)
+        else:
+            return WeightedDetectionLoss(self)
 
 
 # ============================================================
@@ -86,3 +90,34 @@ class ManualWeightedTrainer(DetectionTrainer):
         model.class_weights = self.class_weights
 
         return model
+
+
+# ============================================================
+# BUILDER DE TRAINER CON PESOS DINÁMICOS
+# ============================================================
+
+def build_weighted_trainer(class_counts, device: str = "cuda"):
+    """
+    Construye una subclase de DetectionTrainer con class weights calculados
+    a partir de la frecuencia de cada clase.
+    """
+    if isinstance(class_counts, dict):
+        counts = [class_counts[i] for i in sorted(class_counts)]
+    else:
+        counts = list(class_counts)
+
+    counts_tensor = torch.tensor(counts, dtype=torch.float32)
+    total = counts_tensor.sum()
+    n_classes = len(counts_tensor)
+    weights = total / (n_classes * counts_tensor)
+    weights = weights / weights.mean()
+
+    print(f"Class weights calculados ({n_classes} clases):")
+    for i, w in enumerate(weights.tolist()):
+        print(f"  clase {i}: count={counts[i]:6d}  weight={w:.4f}")
+
+    class DynamicWeightedTrainer(ManualWeightedTrainer):
+        class_weights = weights
+
+    return DynamicWeightedTrainer
+
