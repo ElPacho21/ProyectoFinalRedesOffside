@@ -125,15 +125,12 @@ def detectar_punto_de_fuga(imagen_bgr):
         return green_max
 
     segs, angulos = [], []
-    n_raw = len(lsd_lines) if lsd_lines is not None else 0
-    n_len = n_ang = n_color = 0
     if lsd_lines is not None:
         for l in lsd_lines:
             x1, y1, x2, y2 = l[0]
             length = np.hypot(x2 - x1, y2 - y1)
             if length < 20:
                 continue
-            n_len += 1
             ang = np.degrees(np.arctan2(y2 - y1, x2 - x1))
             abs_ang = abs(ang)
             # Filter near-horizontal in both directions (0° and 180°)
@@ -143,18 +140,10 @@ def detectar_punto_de_fuga(imagen_bgr):
             # the top. A real field line extends well into the field (max y > 20%).
             if max(y1, y2) < h * 0.20:
                 continue
-            n_ang += 1
             green_score = _seg_on_field(x1, y1, x2, y2)
             if green_score > 0.30:
-                n_color += 1
                 segs.append((x1, y1, x2, y2))
                 angulos.append(ang)
-            elif length > 40:
-                print(f"  FAILED field ang={ang:.1f}° len={length:.0f} green={green_score:.2f} ({x1:.0f},{y1:.0f})-({x2:.0f},{y2:.0f})")
-
-    print(f"[hough] LSD raw={n_raw} len≥20={n_len} ang_ok={n_ang} color_ok={n_color} → final={len(segs)}")
-    for s, a in zip(segs, angulos):
-        print(f"  seg ang={a:.1f}° ({s[0]:.0f},{s[1]:.0f})-({s[2]:.0f},{s[3]:.0f})")
 
     # Deduplicate: LSD detects both edges of each white line (opposite angle signs,
     # nearly same position). Two segments are duplicates if they are nearly parallel

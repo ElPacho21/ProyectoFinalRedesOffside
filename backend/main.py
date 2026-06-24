@@ -2,7 +2,9 @@
 import io
 import os
 import base64
+import logging
 import tempfile
+import time
 from pathlib import Path
 from typing import List, Optional
 
@@ -10,12 +12,18 @@ import cv2
 import numpy as np
 import uvicorn
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
 from pydantic import BaseModel
 
 load_dotenv()
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
 
 from utils import (  # noqa: E402
     CLASES,
@@ -29,6 +37,19 @@ from hough import detectar_punto_de_fuga  # noqa: E402
 
 app = FastAPI(title="Offside Detection API", version="1.0.0")
 
+logger = logging.getLogger("offside")
+
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start = time.perf_counter()
+    logger.info("→ %s %s", request.method, request.url.path)
+    response = await call_next(request)
+    elapsed_ms = (time.perf_counter() - start) * 1000
+    logger.info("← %s %s %d (%.1fms)", request.method, request.url.path, response.status_code, elapsed_ms)
+    return response
+
+
 _origins = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000").split(",")]
 app.add_middleware(
     CORSMiddleware,
@@ -41,11 +62,22 @@ app.add_middleware(
 _model = None
 
 
+def get_model():
+    """Carga perezosa del modelo ONNX. En local con uvicorn se precarga en el
+    evento startup; en serverless (donde los eventos lifespan no están
+    garantizados) se carga en el primer request que lo necesite."""
+    global _model
+    if _model is None:
+        path = os.getenv("MODEL_PATH", str(MODEL_PATH))
+        _model = cargar_modelo(path)
+    return _model
+
+
 @app.on_event("startup")
 async def startup_event():
-    global _model
-    path = os.getenv("MODEL_PATH", str(MODEL_PATH))
-    _model = cargar_modelo(path)
+    logger.info("Cargando modelo ONNX...")
+    get_model()
+    logger.info("Modelo cargado. API lista.")
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -113,16 +145,13 @@ async def detect(
     image: UploadFile = File(...),
     iou: float = Form(0.7),
 ):
-    if _model is None:
-        raise HTTPException(status_code=503, detail="Modelo no cargado aún.")
-
     data = await image.read()
     try:
         img = Image.open(io.BytesIO(data)).convert("RGB")
     except Exception:
         raise HTTPException(status_code=400, detail="Imagen inválida.")
 
-    detections = detectar_objetos(_model, img, iou=iou)
+    detections = detectar_objetos(get_model(), img, iou=iou)
     detected_img = dibujar_resultado(img, detections, None, None)
 
     img_bgr = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
@@ -202,9 +231,7 @@ class OffsideRequest(BaseModel):
 
 @app.post("/api/calculate-offside")
 async def calculate_offside_endpoint(req: OffsideRequest):
-    if _model is None:
-        raise HTTPException(status_code=503, detail="Modelo no cargado aún.")
-
+    # No usa el modelo: calcula offside sobre las detecciones que envía el cliente.
     try:
         img = _b64_to_pil(req.image_b64)
     except Exception:

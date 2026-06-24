@@ -1,30 +1,20 @@
-"""Core offside detection utilities. Adapted from prod/utils.py for FastAPI backend."""
+"""Core offside detection utilities. Adapted from prod/utils.py for FastAPI backend.
+
+La inferencia corre sobre ONNX Runtime (sin torch ni ultralytics) para que el
+backend quede liviano en deploys serverless. El modelo es un YOLO26m exportado
+end-to-end (NMS-free): su salida ONNX es (1, 300, 6) =
+[x1, y1, x2, y2, conf, class] en coordenadas de píxel del input con letterbox.
+"""
 import os
-import sys
 from pathlib import Path
 import cv2
 import numpy as np
+import onnxruntime as ort
 from PIL import Image
 
 from hough import detectar_punto_de_fuga, punto_de_fuga_desde_puntos  # noqa: F401
 
-_DEV_DIR = Path(__file__).resolve().parent.parent / "dev"
-try:
-    if str(_DEV_DIR) not in sys.path:
-        sys.path.insert(0, str(_DEV_DIR))
-    from custom_models import WeightedDetectionModel
-    sys.modules["__main__"].WeightedDetectionModel = WeightedDetectionModel
-except Exception:
-    class WeightedDetectionModel:
-        pass
-    sys.modules["__main__"].WeightedDetectionModel = WeightedDetectionModel
-
-_ROOT = Path(__file__).resolve().parent.parent
-MODEL_PATH = (
-    _ROOT / "dev" / "modelo.pt"
-    if (_ROOT / "dev" / "modelo.pt").exists()
-    else _ROOT / "dev" / "YOLOv26m Manual Weighted" / "exp5_yolo26m_manual_weighted.pt"
-)
+MODEL_PATH = Path(__file__).resolve().parent / "modelo.onnx"
 
 CLASES = {
     0: "Ball",
@@ -61,9 +51,71 @@ _COLORES_BGR = {
 }
 
 
+class _OnnxModel:
+    """Wrapper liviano sobre onnxruntime con lo que necesita la inferencia."""
+
+    def __init__(self, ruta):
+        self.session = ort.InferenceSession(
+            str(ruta), providers=["CPUExecutionProvider"]
+        )
+        inp = self.session.get_inputs()[0]
+        self.input_name = inp.name
+        # input shape [1, 3, H, W]; H == W para este modelo
+        self.imgsz = int(inp.shape[2]) if isinstance(inp.shape[2], int) else 640
+
+
 def cargar_modelo(ruta=None):
-    from ultralytics import YOLO
-    return YOLO(str(ruta or MODEL_PATH))
+    ruta = Path(ruta) if ruta else MODEL_PATH
+    if not ruta.is_absolute():
+        # Una ruta relativa (p. ej. MODEL_PATH=modelo.onnx del .env) se ancla al
+        # directorio del backend, no al cwd → corre desde cualquier lado.
+        ruta = Path(__file__).resolve().parent / ruta
+    return _OnnxModel(str(ruta))
+
+
+def _letterbox(img, new_shape, color=(114, 114, 114)):
+    """Redimensiona manteniendo aspect ratio y rellena hasta new_shape×new_shape.
+    Réplica de LetterBox(auto=False) de ultralytics. Devuelve (img, r, dw, dh)."""
+    h, w = img.shape[:2]
+    r = min(new_shape / h, new_shape / w)
+    nw, nh = round(w * r), round(h * r)
+    resized = cv2.resize(img, (nw, nh), interpolation=cv2.INTER_LINEAR)
+    dw, dh = (new_shape - nw) / 2.0, (new_shape - nh) / 2.0
+    top, bottom = round(dh - 0.1), round(dh + 0.1)
+    left, right = round(dw - 0.1), round(dw + 0.1)
+    return (
+        cv2.copyMakeBorder(resized, top, bottom, left, right,
+                           cv2.BORDER_CONSTANT, value=color),
+        r, dw, dh,
+    )
+
+
+def _inferir(modelo, img_rgb, min_conf):
+    """Corre el modelo ONNX y devuelve detecciones crudas en coordenadas de la
+    imagen original: lista de (class_id, conf, x1, y1, x2, y2).
+
+    ultralytics, al recibir un array numpy en predict(), lo trata como BGR (hace
+    im[..., ::-1] internamente), por lo que el modelo fue entrenado/usado viendo
+    BGR. Reproducimos ese orden de canales para paridad exacta con el pipeline
+    original (validado: bit-exact en 640×640 nativo, <1.2px reescalado)."""
+    feed = np.ascontiguousarray(img_rgb[..., ::-1])  # RGB → BGR
+    padded, r, dw, dh = _letterbox(feed, modelo.imgsz)
+    blob = (padded.astype(np.float32) / 255.0).transpose(2, 0, 1)[None]
+    blob = np.ascontiguousarray(blob)
+    out = modelo.session.run(None, {modelo.input_name: blob})[0][0]  # (300, 6)
+
+    h, w = img_rgb.shape[:2]
+    dets = []
+    for x1, y1, x2, y2, conf, cls in out:
+        if conf < min_conf:
+            continue
+        x1 = min(max((x1 - dw) / r, 0.0), w)
+        y1 = min(max((y1 - dh) / r, 0.0), h)
+        x2 = min(max((x2 - dw) / r, 0.0), w)
+        y2 = min(max((y2 - dh) / r, 0.0), h)
+        dets.append((int(round(cls)), float(conf),
+                     float(x1), float(y1), float(x2), float(y2)))
+    return dets
 
 
 # --- Tuning for color-based team clustering (env-overridable) ---
@@ -206,33 +258,23 @@ def reasignar_equipos_por_color(detecciones, imagen_pil):
 
 
 def detectar_objetos(modelo, imagen_pil, conf=None, iou=0.7, agnostic_nms=True, clustering=True):
+    # iou/agnostic_nms se ignoran: el modelo es end-to-end (NMS-free).
     # Run at the lowest per-class threshold so nothing is missed before filtering
     min_conf = min(CONF_POR_CLASE.values())
     img_np = np.array(imagen_pil.convert("RGB"))
-    resultados = modelo.predict(
-        source=img_np,
-        conf=min_conf,
-        iou=iou,
-        agnostic_nms=agnostic_nms,
-        verbose=False,
-    )
+    raw = _inferir(modelo, img_np, min_conf)
 
     detecciones = []
-    if resultados and resultados[0].boxes is not None:
-        boxes = resultados[0].boxes
-        for i in range(len(boxes)):
-            cls_id = int(boxes.cls[i].item())
-            conf_i = float(boxes.conf[i].item())
-            umbral = CONF_POR_CLASE.get(cls_id, min_conf)
-            if conf_i < umbral:
-                continue
-            x1, y1, x2, y2 = boxes.xyxy[i].tolist()
-            detecciones.append({
-                "class_id": cls_id,
-                "class_name": CLASES.get(cls_id, str(cls_id)),
-                "conf": conf_i,
-                "x1": x1, "y1": y1, "x2": x2, "y2": y2,
-            })
+    for cls_id, conf_i, x1, y1, x2, y2 in raw:
+        umbral = CONF_POR_CLASE.get(cls_id, min_conf)
+        if conf_i < umbral:
+            continue
+        detecciones.append({
+            "class_id": cls_id,
+            "class_name": CLASES.get(cls_id, str(cls_id)),
+            "conf": conf_i,
+            "x1": x1, "y1": y1, "x2": x2, "y2": y2,
+        })
 
     # For certain classes keep only the single highest-confidence detection
     filtered = []

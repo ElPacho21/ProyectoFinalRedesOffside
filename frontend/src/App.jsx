@@ -67,12 +67,40 @@ export default function App() {
     }
   }
 
-  const handleExtractFrame = async (videoFile, frameNumber) => {
-    const form = new FormData()
-    form.append('video', videoFile)
-    form.append('frame', frameNumber)
-    const { data } = await api.post('/api/extract-frame', form)
-    return data
+  const handleExtractFrame = (videoFile, frameNumber) => {
+    const DEFAULT_FPS = 30
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(videoFile)
+      const video = document.createElement('video')
+      video.preload = 'metadata'
+      video.muted = true
+      video.playsInline = true
+
+      const captureFrame = () => {
+        const canvas = document.createElement('canvas')
+        canvas.width = video.videoWidth
+        canvas.height = video.videoHeight
+        canvas.getContext('2d').drawImage(video, 0, 0)
+        const totalFrames = Math.max(1, Math.round(video.duration * DEFAULT_FPS))
+        canvas.toBlob((blob) => {
+          const reader = new FileReader()
+          reader.onloadend = () => {
+            URL.revokeObjectURL(url)
+            resolve({
+              image_b64: reader.result.split(',')[1],
+              total_frames: totalFrames,
+              fps: DEFAULT_FPS,
+            })
+          }
+          reader.readAsDataURL(blob)
+        }, 'image/jpeg', 0.92)
+      }
+
+      video.onloadedmetadata = () => { video.currentTime = frameNumber / DEFAULT_FPS }
+      video.onseeked = captureFrame
+      video.onerror = () => { URL.revokeObjectURL(url); reject(new Error('No se pudo cargar el video')) }
+      video.src = url
+    })
   }
 
   const handleCalculateOffside = async (vp) => {

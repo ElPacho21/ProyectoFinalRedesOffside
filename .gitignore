@@ -13,6 +13,8 @@ data/combined/
 
 # Archivos de modelo
 *.onnx
+# excepción: el modelo de inferencia del backend SÍ se versiona (lo usa el deploy)
+!backend/modelo.onnx
 
 # Archivos comprimidos
 *.zip
