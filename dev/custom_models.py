@@ -121,3 +121,22 @@ def build_weighted_trainer(class_counts, device: str = "cuda"):
 
     return DynamicWeightedTrainer
 
+
+# ============================================================
+# INYECCIÓN EN __main__ PARA DESERIALIZACIÓN (PICKLE)
+# ============================================================
+
+# PyTorch guarda referencias relativas al módulo __main__ si las clases se definieron originalmente
+# en un notebook. Al cargar los modelos (.pt), se buscan estas clases en __main__.
+# Las inyectamos aquí de forma dinámica para evitar el error "module '__main__' has no attribute ...".
+try:
+    import sys
+    main_module = sys.modules['__main__']
+    main_module.WeightedDetectionModel = WeightedDetectionModel
+    main_module.WeightedE2ELoss = WeightedE2ELoss
+    main_module.WeightedDetectionLoss = WeightedDetectionLoss
+    main_module.ManualWeightedTrainer = ManualWeightedTrainer
+except Exception as e:
+    pass
+
+
