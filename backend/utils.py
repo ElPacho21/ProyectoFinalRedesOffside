@@ -98,7 +98,7 @@ def _inferir(modelo, img_rgb, min_conf):
     im[..., ::-1] internamente), por lo que el modelo fue entrenado/usado viendo
     BGR. Reproducimos ese orden de canales para paridad exacta con el pipeline
     original (validado: bit-exact en 640×640 nativo, <1.2px reescalado)."""
-    feed = np.ascontiguousarray(img_rgb[..., ::-1])  # RGB → BGR
+    feed = np.ascontiguousarray(img_rgb)  # Feed RGB directly to match model training
     padded, r, dw, dh = _letterbox(feed, modelo.imgsz)
     blob = (padded.astype(np.float32) / 255.0).transpose(2, 0, 1)[None]
     blob = np.ascontiguousarray(blob)
@@ -202,10 +202,10 @@ def reasignar_equipos_por_color(detecciones, imagen_pil):
 
     resultado = [dict(d) for d in detecciones]
 
-    # --- Mejora #3: anclas de color desde arquero/árbitro ya detectados ---
+    # --- Mejora #3: anclas de color desde árbitro ya detectado ---
     anclas = []  # (class_id, feat)
     for d in detecciones:
-        if d["class_id"] in (2, 4):
+        if d["class_id"] == 4:  # Solo usar el árbitro como ancla para evitar reasignar jugadores como arqueros
             col = _color_camiseta(_torso_crop(d, img_np), _grass_lab(d, img_np))
             if col is not None:
                 anclas.append((d["class_id"], _feat(col)))
@@ -257,8 +257,43 @@ def reasignar_equipos_por_color(detecciones, imagen_pil):
     return resultado
 
 
+def _calcular_iou(box1, box2):
+    x1_1, y1_1, x2_1, y2_1 = box1["x1"], box1["y1"], box1["x2"], box1["y2"]
+    x1_2, y1_2, x2_2, y2_2 = box2["x1"], box2["y1"], box2["x2"], box2["y2"]
+
+    xi1 = max(x1_1, x1_2)
+    yi1 = max(y1_1, y1_2)
+    xi2 = min(x2_1, x2_2)
+    yi2 = min(y2_1, y2_2)
+
+    inter_w = max(0.0, xi2 - xi1)
+    inter_h = max(0.0, yi2 - yi1)
+    inter_area = inter_w * inter_h
+
+    box1_area = (x2_1 - x1_1) * (y2_1 - y1_1)
+    box2_area = (x2_2 - x1_2) * (y2_2 - y1_2)
+
+    union_area = box1_area + box2_area - inter_area
+    if union_area <= 0.0:
+        return 0.0
+    return inter_area / union_area
+
+
+def _nms_agnostico(detecciones, iou_threshold):
+    # Ordenar por confianza descendente
+    sorted_dets = sorted(detecciones, key=lambda x: x["conf"], reverse=True)
+    keep = []
+    while sorted_dets:
+        best = sorted_dets.pop(0)
+        keep.append(best)
+        sorted_dets = [
+            d for d in sorted_dets
+            if _calcular_iou(best, d) < iou_threshold
+        ]
+    return keep
+
+
 def detectar_objetos(modelo, imagen_pil, conf=None, iou=0.7, agnostic_nms=True, clustering=True):
-    # iou/agnostic_nms se ignoran: el modelo es end-to-end (NMS-free).
     # Run at the lowest per-class threshold so nothing is missed before filtering
     min_conf = min(CONF_POR_CLASE.values())
     img_np = np.array(imagen_pil.convert("RGB"))
@@ -288,6 +323,9 @@ def detectar_objetos(modelo, imagen_pil, conf=None, iou=0.7, agnostic_nms=True, 
             filtered.append(d)
     filtered.extend(best_per_class.values())
     detecciones = filtered
+
+    # NMS agnóstico de clase para eliminar cajas superpuestas (conservando la de mayor confianza)
+    detecciones = _nms_agnostico(detecciones, iou_threshold=iou)
 
     if clustering:
         detecciones = reasignar_equipos_por_color(detecciones, imagen_pil)
